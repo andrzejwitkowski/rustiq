@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 use ratatui::style::{Color, Modifier, Style};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, ThemeSet};
@@ -24,7 +24,7 @@ impl SyntectHighlighter {
         }
     }
 
-    pub fn highlight_with_theme(&self, path: &PathBuf, source: &str, dark: bool) -> Vec<StyledLine> {
+    pub fn highlight_with_theme(&self, path: &Path, source: &str, dark: bool) -> Vec<StyledLine> {
         let theme_name = if dark { &self.dark_theme } else { &self.light_theme };
         let theme = match self.ts.themes.get(theme_name) {
             Some(t) => t,
@@ -64,8 +64,8 @@ impl SyntectHighlighter {
 }
 
 impl Highlighter for SyntectHighlighter {
-    fn highlight(&self, path: &PathBuf, source: &str) -> Vec<StyledLine> {
-        self.highlight_with_theme(path, source, true)
+    fn highlight(&self, path: &Path, source: &str, dark_theme: bool) -> Vec<StyledLine> {
+        self.highlight_with_theme(path, source, dark_theme)
     }
 }
 

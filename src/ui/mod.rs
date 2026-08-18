@@ -11,10 +11,10 @@ use ratatui::{
     Frame,
 };
 
-use crate::adapters::highlight::SyntectHighlighter;
 use crate::app::{App, DiffViewMode, Screen};
+use crate::ports::Highlighter;
 
-pub fn render(f: &mut Frame, app: &App, hl: &SyntectHighlighter) {
+pub fn render(f: &mut Frame, app: &App, hl: &dyn Highlighter) {
     let t = app.theme;
 
     match app.screen {
@@ -25,19 +25,19 @@ pub fn render(f: &mut Frame, app: &App, hl: &SyntectHighlighter) {
             let area = f.area();
 
             // vertical split: main area + status bar
-            let vert = Layout::default()
+            let rows = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Min(0), Constraint::Length(1)])
                 .split(area);
 
             // horizontal split: file list (25%) + diff (75%)
-            let horiz = Layout::default()
+            let cols = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
-                .split(vert[0]);
+                .split(rows[0]);
 
-            file_list::render(f, app, horiz[0]);
-            diff_view::render(f, app, horiz[1], hl);
+            file_list::render(f, app, cols[0]);
+            diff_view::render(f, app, cols[1], hl);
 
             // status bar
             let mode_label = match app.view_mode {
@@ -63,7 +63,7 @@ pub fn render(f: &mut Frame, app: &App, hl: &SyntectHighlighter) {
             ]))
             .alignment(Alignment::Left)
             .style(Style::default().bg(t.selection_bg()));
-            f.render_widget(status, vert[1]);
+            f.render_widget(status, rows[1]);
 
             if app.screen == Screen::CommentInput {
                 comment_input::render(f, app, area);

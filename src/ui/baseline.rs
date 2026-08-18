@@ -36,15 +36,14 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::default().fg(t.border()))
-                .style(Style::default().bg(t.bg()))
-                .title(Span::styled(" Commits ", Style::default().fg(t.comment_fg()))),
-        );
+    let list = List::new(items).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(t.border()))
+            .style(Style::default().bg(t.bg()))
+            .title(Span::styled(" Commits ", Style::default().fg(t.comment_fg()))),
+    );
     let mut state = ListState::default();
     state.select(Some(app.baseline_cursor));
     f.render_stateful_widget(list, chunks[1], &mut state);

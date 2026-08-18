@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -162,23 +162,23 @@ impl App {
         self.comments.iter().find(|c| c.file == file && c.line_no == line_no)
     }
 
-    pub fn comment_for_line(&self, file: &PathBuf, line_no: usize) -> Option<&Comment> {
-        self.comments.iter().find(|c| &c.file == file && c.line_no == line_no)
+    pub fn comment_for_line(&self, file: &Path, line_no: usize) -> Option<&Comment> {
+        self.comments.iter().find(|c| c.file == file && c.line_no == line_no)
     }
 
-    fn compute_anchor_hash(&self, file: &PathBuf, line_no: usize) -> String {
+    fn compute_anchor_hash(&self, file: &Path, line_no: usize) -> String {
         let lines = self.repo.read_lines(file).unwrap_or_default();
         JsonCommentStore::anchor_hash(&lines, line_no)
     }
 
     fn check_stale_comments(&mut self) {
-        for comment in self.comments.iter_mut() {
-            let lines = match std::fs::read_to_string(&comment.file) {
-                Ok(s) => s.lines().map(str::to_string).collect::<Vec<_>>(),
-                Err(_) => { comment.stale = true; continue; }
-            };
-            let current_hash = JsonCommentStore::anchor_hash(&lines, comment.line_no);
-            comment.stale = current_hash != comment.anchor_hash;
+        for i in 0..self.comments.len() {
+            let file = self.comments[i].file.clone();
+            let line_no = self.comments[i].line_no;
+            let anchor_hash = self.comments[i].anchor_hash.clone();
+            let lines = self.repo.read_lines(&file).unwrap_or_default();
+            let current_hash = JsonCommentStore::anchor_hash(&lines, line_no);
+            self.comments[i].stale = current_hash != anchor_hash;
         }
     }
 
@@ -207,9 +207,7 @@ impl App {
             out.push_str(&format!("=== {} : line {} ===\n", c.file.display(), c.line_no));
             if c.stale { out.push_str("[STALE]\n"); }
             // context lines from working tree
-            let lines = std::fs::read_to_string(&c.file)
-                .map(|s| s.lines().map(str::to_string).collect::<Vec<_>>())
-                .unwrap_or_default();
+            let lines = self.repo.read_lines(&c.file).unwrap_or_default();
             let start = c.line_no.saturating_sub(11);
             let end = (c.line_no + 9).min(lines.len());
             out.push_str(&format!("--- a/{}\n+++ b/{}\n@@ -{},{} +{},{} @@\n",

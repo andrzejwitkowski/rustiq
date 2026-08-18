@@ -8,6 +8,9 @@ use ratatui::{
 
 use crate::app::App;
 
+const POPUP_HEIGHT: u16 = 7;
+const POPUP_WIDTH_PERCENT: u16 = 60;
+
 pub fn render(f: &mut Frame, app: &App, area: Rect) {
     let t = app.theme;
 
@@ -16,16 +19,16 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Percentage(40),
-            Constraint::Length(7),
+            Constraint::Length(POPUP_HEIGHT),
             Constraint::Min(0),
         ])
         .split(area);
     let horiz = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(20),
-            Constraint::Percentage(60),
-            Constraint::Percentage(20),
+            Constraint::Percentage((100 - POPUP_WIDTH_PERCENT) / 2),
+            Constraint::Percentage(POPUP_WIDTH_PERCENT),
+            Constraint::Percentage((100 - POPUP_WIDTH_PERCENT) / 2),
         ])
         .split(vert[1]);
     let popup_area = horiz[1];
@@ -37,10 +40,16 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(BorderType::Double)
-        .border_style(Style::default().fg(t.comment_fg()))
-        .style(Style::default().bg(t.bg()))
-        .title(Span::styled(title, Style::default().fg(t.comment_fg()).add_modifier(Modifier::BOLD)));
+        .border_type(BorderType::Thick)
+        .border_style(Style::default().fg(t.comment_border()))
+        .style(Style::default().bg(t.comment_bg()))
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(t.comment_border())
+                .bg(t.comment_bg())
+                .add_modifier(Modifier::BOLD),
+        ));
 
     let inner = block.inner(popup_area);
     f.render_widget(block, popup_area);
@@ -51,21 +60,22 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         .split(inner);
 
     let text = Paragraph::new(app.comment_input_text.as_str())
-        .style(Style::default().fg(t.fg()).bg(t.bg()))
+        .style(Style::default().fg(t.comment_text_fg()).bg(t.comment_bg()))
         .wrap(ratatui::widgets::Wrap { trim: false });
     f.render_widget(text, chunks[0]);
 
     let help = Paragraph::new(Line::from(vec![
         Span::styled("Enter", Style::default().fg(t.added_fg()).add_modifier(Modifier::BOLD)),
-        Span::styled(" save  ", Style::default().fg(t.stale_fg())),
+        Span::styled(" save  ", Style::default().fg(t.comment_text_fg()).bg(t.comment_bg())),
         Span::styled("Esc", Style::default().fg(t.removed_fg()).add_modifier(Modifier::BOLD)),
-        Span::styled(" cancel", Style::default().fg(t.stale_fg())),
+        Span::styled(" cancel", Style::default().fg(t.comment_text_fg()).bg(t.comment_bg())),
     ]))
     .alignment(Alignment::Center);
     f.render_widget(help, chunks[1]);
 
     // cursor blinking position
-    let cursor_x = popup_area.x + 1 + (app.comment_input_text.len() % (inner.width as usize)) as u16;
-    let cursor_y = popup_area.y + 1 + (app.comment_input_text.len() / inner.width as usize) as u16;
+    let input_width = usize::from(inner.width.max(1));
+    let cursor_x = popup_area.x + 1 + (app.comment_input_text.len() % input_width) as u16;
+    let cursor_y = popup_area.y + 1 + (app.comment_input_text.len() / input_width) as u16;
     f.set_cursor_position((cursor_x, cursor_y));
 }

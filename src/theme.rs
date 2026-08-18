@@ -95,6 +95,34 @@ impl Theme {
         }
     }
 
+    pub fn comment_bg(self) -> Color {
+        match self {
+            Self::DefaultDark => Color::Rgb(10, 12, 20),
+            Self::GithubLight => Color::Rgb(26, 29, 36),
+        }
+    }
+
+    pub fn comment_text_fg(self) -> Color {
+        match self {
+            Self::DefaultDark => Color::Rgb(230, 235, 255),
+            Self::GithubLight => Color::Rgb(242, 246, 252),
+        }
+    }
+
+    pub fn comment_border(self) -> Color {
+        match self {
+            Self::DefaultDark => Color::Rgb(245, 169, 127),
+            Self::GithubLight => Color::Rgb(255, 196, 120),
+        }
+    }
+
+    pub fn commented_line_bg(self) -> Color {
+        match self {
+            Self::DefaultDark => Color::Rgb(58, 42, 30),
+            Self::GithubLight => Color::Rgb(255, 226, 186),
+        }
+    }
+
     pub fn base_style(self) -> Style {
         Style::default().fg(self.fg()).bg(self.bg())
     }

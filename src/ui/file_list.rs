@@ -25,8 +25,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
             };
             let badge = file.status.badge();
             let path = file.path.display().to_string();
-            let has_comment = app.comments.iter().any(|c| c.file == file.path);
-
+            let comment_count = app.comments.iter().filter(|c| c.file == file.path).count();
             let bg = if i == app.file_cursor { t.selection_bg() } else { t.bg() };
             let name_style = Style::default().fg(t.fg()).bg(bg);
             let badge_style = Style::default().fg(badge_color).bg(bg).add_modifier(Modifier::BOLD);
@@ -35,8 +34,11 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
                 Span::styled(format!(" {badge:<2} "), badge_style),
                 Span::styled(path, name_style),
             ];
-            if has_comment {
-                spans.push(Span::styled(" 💬", Style::default().fg(t.comment_fg()).bg(bg)));
+            if comment_count > 0 {
+                spans.push(Span::styled(
+                    format!("   💬 {:>2}", comment_count),
+                    Style::default().fg(t.comment_fg()).bg(bg).add_modifier(Modifier::BOLD),
+                ));
             }
 
             ListItem::new(Line::from(spans))

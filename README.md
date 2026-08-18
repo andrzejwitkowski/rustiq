@@ -70,6 +70,7 @@ Comments are stored in `.rustiq/comments.json` inside the repository (add to `.g
 
 - Comments survive restart.
 - If the ±10 lines of context around a commented line change (code edited or fixed), the comment is marked **stale** (`[S]` in gutter).
+- Comment text is shown inline directly under the commented code line (with multi-line wrapping).
 - Press `C` to copy all comments to clipboard in diff format with ±10 lines of context.
 
 ## Architecture

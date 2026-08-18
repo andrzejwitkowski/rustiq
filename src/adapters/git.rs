@@ -1,8 +1,7 @@
 use std::cell::RefCell;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use anyhow::{Context, Result};
 use git2::{Delta, DiffOptions, Repository, Sort};
-use similar::{ChangeTag, TextDiff};
 
 use crate::domain::{Baseline, DiffFile, DiffLine, DiffLineKind, FileStatus, Hunk};
 use crate::ports::GitRepository;
@@ -41,7 +40,7 @@ impl GitRepository for Git2Repository {
         }
     }
 
-    fn read_lines(&self, path: &PathBuf) -> Result<Vec<String>> {
+    fn read_lines(&self, path: &Path) -> Result<Vec<String>> {
         let workdir = self.repo.workdir().context("bare repo")?;
         let full = workdir.join(path);
         let content = std::fs::read_to_string(&full)
@@ -147,25 +146,3 @@ fn parse_git2_diff(diff: &git2::Diff) -> Result<Vec<DiffFile>> {
     Ok(files.into_inner())
 }
 
-/// Diff two strings line-by-line using `similar`. Used for ad-hoc comparisons.
-pub fn file_diff_similar(old: &str, new: &str) -> Vec<Hunk> {
-    let diff = TextDiff::from_lines(old, new);
-    diff.grouped_ops(3)
-        .iter()
-        .map(|group| {
-            let lines = group.iter().flat_map(|op| {
-                diff.iter_changes(op).map(|change| DiffLine {
-                    kind: match change.tag() {
-                        ChangeTag::Insert => DiffLineKind::Added,
-                        ChangeTag::Delete => DiffLineKind::Removed,
-                        ChangeTag::Equal => DiffLineKind::Context,
-                    },
-                    old_lineno: change.old_index().map(|i| i as u32 + 1),
-                    new_lineno: change.new_index().map(|i| i as u32 + 1),
-                    content: change.value().trim_end_matches('\n').to_string(),
-                })
-            }).collect();
-            Hunk { header: String::new(), lines }
-        })
-        .collect()
-}

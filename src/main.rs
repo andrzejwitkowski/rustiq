@@ -17,6 +17,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 
 use adapters::{comments::JsonCommentStore, git::Git2Repository, highlight::SyntectHighlighter};
 use app::{App, Screen};
+use ports::Highlighter;
 
 fn main() -> Result<()> {
     let cwd = std::env::current_dir()?;
@@ -46,7 +47,7 @@ fn main() -> Result<()> {
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
-    hl: &SyntectHighlighter,
+    hl: &dyn Highlighter,
 ) -> Result<()> {
     loop {
         terminal.draw(|f| ui::render(f, app, hl))?;
@@ -62,32 +63,34 @@ fn run_loop(
             app.status_message = None;
         }
 
-        match app.screen {
+        let should_quit = match app.screen {
             Screen::BaselinePicker => handle_baseline(app, key)?,
             Screen::Main => handle_main(app, key)?,
-            Screen::CommentInput => handle_comment_input(app, key),
+            Screen::CommentInput => {
+                handle_comment_input(app, key);
+                false
+            }
+        };
+        if should_quit {
+            return Ok(());
         }
     }
 }
 
-fn handle_baseline(app: &mut App, key: event::KeyEvent) -> Result<()> {
+fn handle_baseline(app: &mut App, key: event::KeyEvent) -> Result<bool> {
     match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => std::process::exit(0),
-        KeyCode::Up | KeyCode::Char('k') => {
-            if app.baseline_cursor > 0 { app.baseline_cursor -= 1; }
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
-            if app.baseline_cursor + 1 < app.baselines.len() { app.baseline_cursor += 1; }
-        }
+        KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
+        KeyCode::Up | KeyCode::Char('k') if app.baseline_cursor > 0 => app.baseline_cursor -= 1,
+        KeyCode::Down | KeyCode::Char('j') if app.baseline_cursor + 1 < app.baselines.len() => app.baseline_cursor += 1,
         KeyCode::Enter => app.select_baseline()?,
         _ => {}
     }
-    Ok(())
+    Ok(false)
 }
 
-fn handle_main(app: &mut App, key: event::KeyEvent) -> Result<()> {
+fn handle_main(app: &mut App, key: event::KeyEvent) -> Result<bool> {
     match (key.modifiers, key.code) {
-        (_, KeyCode::Char('q')) | (_, KeyCode::Esc) => std::process::exit(0),
+        (_, KeyCode::Char('q')) | (_, KeyCode::Esc) => return Ok(true),
         (_, KeyCode::Char('v')) | (_, KeyCode::Char('V')) => {
             app.view_mode = app.view_mode.toggle();
         }
@@ -121,7 +124,7 @@ fn handle_main(app: &mut App, key: event::KeyEvent) -> Result<()> {
         (_, KeyCode::Char('C')) => app.export_comments_to_clipboard(),
         _ => {}
     }
-    Ok(())
+    Ok(false)
 }
 
 fn handle_comment_input(app: &mut App, key: event::KeyEvent) {
