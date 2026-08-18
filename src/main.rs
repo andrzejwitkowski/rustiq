@@ -5,7 +5,7 @@ mod ports;
 mod theme;
 mod ui;
 
-use std::io;
+use std::io::{self, stdout};
 use std::time::Duration;
 use anyhow::Result;
 use crossterm::{
@@ -19,29 +19,33 @@ use adapters::{comments::JsonCommentStore, git::Git2Repository, highlight::Synte
 use app::{App, Screen};
 use ports::Highlighter;
 
+struct TerminalGuard;
+
+impl TerminalGuard {
+    fn new() -> Result<Self> {
+        enable_raw_mode()?;
+        execute!(stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(stdout(), LeaveAlternateScreen, DisableMouseCapture, crossterm::cursor::Show);
+    }
+}
+
 fn main() -> Result<()> {
     let cwd = std::env::current_dir()?;
     let git_repo = Git2Repository::open(&cwd)?;
     let comment_store = JsonCommentStore::new(&cwd)?;
     let highlighter = SyntectHighlighter::new();
-
     let mut app = App::new(Box::new(git_repo), comment_store)?;
 
-    // terminal setup
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
-    let result = run_loop(&mut terminal, &mut app, &highlighter);
-
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
-    terminal.show_cursor()?;
-
-    result
+    let _guard = TerminalGuard::new()?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+    run_loop(&mut terminal, &mut app, &highlighter)
 }
 
 fn run_loop(
@@ -58,7 +62,6 @@ fn run_loop(
 
         let Event::Key(key) = event::read()? else { continue };
 
-        // clear transient status message on any key
         if app.status_message.is_some() && !matches!(key.code, KeyCode::Char('C')) {
             app.status_message = None;
         }
@@ -100,7 +103,6 @@ fn handle_main(app: &mut App, key: event::KeyEvent) -> Result<bool> {
         (_, KeyCode::Char('r')) => {
             app.select_baseline()?;
         }
-        // file navigation
         (_, KeyCode::Left) | (_, KeyCode::Char('h')) => {}
         (_, KeyCode::Up) | (_, KeyCode::Char('k')) if key.modifiers.contains(KeyModifiers::SHIFT) => {
             app.file_up();
@@ -108,16 +110,12 @@ fn handle_main(app: &mut App, key: event::KeyEvent) -> Result<bool> {
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) if key.modifiers.contains(KeyModifiers::SHIFT) => {
             app.file_down();
         }
-        // diff line navigation (plain j/k)
         (_, KeyCode::Up) | (_, KeyCode::Char('k')) => app.diff_line_up(),
         (_, KeyCode::Down) | (_, KeyCode::Char('j')) => app.diff_line_down(),
-        // file navigation with Tab
         (_, KeyCode::Tab) => app.file_down(),
         (_, KeyCode::BackTab) => app.file_up(),
-        // scroll page
         (_, KeyCode::PageUp) => app.diff_scroll = app.diff_scroll.saturating_sub(10),
         (_, KeyCode::PageDown) => app.diff_scroll = app.diff_scroll.saturating_add(10),
-        // comments
         (_, KeyCode::Char('c')) => app.open_comment_input(),
         (_, KeyCode::Char('e')) => app.open_comment_input(),
         (_, KeyCode::Char('d')) => app.delete_comment_on_current_line(),

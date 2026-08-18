@@ -73,9 +73,14 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
     .alignment(Alignment::Center);
     f.render_widget(help, chunks[1]);
 
-    // cursor blinking position
-    let input_width = usize::from(inner.width.max(1));
-    let cursor_x = popup_area.x + 1 + (app.comment_input_text.len() % input_width) as u16;
-    let cursor_y = popup_area.y + 1 + (app.comment_input_text.len() / input_width) as u16;
-    f.set_cursor_position((cursor_x, cursor_y));
+    // cursor blinking position — display columns, clamped to the input pane
+    let input_width = usize::from(chunks[0].width.max(1));
+    let input_height = usize::from(chunks[0].height.max(1));
+    let cols = app.comment_input_text.chars().count();
+    let mut row = cols / input_width;
+    if row >= input_height {
+        row = input_height - 1;
+    }
+    let col = cols % input_width;
+    f.set_cursor_position((chunks[0].x + col as u16, chunks[0].y + row as u16));
 }

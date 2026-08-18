@@ -53,12 +53,13 @@ pub struct App {
     pub comment_input_text: String,
     pub comment_editing_id: Option<Uuid>,
     pub status_message: Option<String>,
+    pub diff_viewport_height: u16,
 }
 
 impl App {
     pub fn new(repo: Box<dyn GitRepository>, comment_store: JsonCommentStore) -> anyhow::Result<Self> {
         let baselines = repo.log()?;
-        let comments = comment_store.load().unwrap_or_default();
+        let comments = comment_store.load()?;
         // stale detection deferred to after first diff load (need file content)
         Ok(Self {
             repo,
@@ -76,11 +77,15 @@ impl App {
             comment_input_text: String::new(),
             comment_editing_id: None,
             status_message: None,
+            diff_viewport_height: 1,
         })
     }
 
     pub fn select_baseline(&mut self) -> anyhow::Result<()> {
-        let baseline = self.baselines[self.baseline_cursor].clone();
+        let Some(baseline) = self.baselines.get(self.baseline_cursor).cloned() else {
+            self.status_message = Some("No baseline is available.".into());
+            return Ok(());
+        };
         self.files = self.repo.diff(&baseline)?;
         self.file_cursor = 0;
         self.diff_scroll = 0;
@@ -134,26 +139,31 @@ impl App {
         let Some(line_no) = self.current_line_no() else { self.screen = Screen::Main; return; };
         let anchor_hash = self.compute_anchor_hash(&file, line_no);
 
-        if let Some(edit_id) = self.comment_editing_id.take() {
-            if let Some(c) = self.comments.iter_mut().find(|c| c.id == edit_id) {
+        let mut next = self.comments.clone();
+        if let Some(edit_id) = self.comment_editing_id {
+            if let Some(c) = next.iter_mut().find(|c| c.id == edit_id) {
                 c.text = text;
                 c.anchor_hash = anchor_hash;
                 c.updated_at = Utc::now();
                 c.stale = false;
             }
         } else {
-            self.comments.push(Comment::new(file, line_no, anchor_hash, text));
+            next.push(Comment::new(file, line_no, anchor_hash, text));
         }
-        let _ = self.comment_store.save(&self.comments);
-        self.screen = Screen::Main;
+        if self.persist_comments(&next, "Comment saved.") {
+            self.comments = next;
+            self.comment_editing_id = None;
+            self.screen = Screen::Main;
+        }
     }
 
     pub fn delete_comment_on_current_line(&mut self) {
         let Some(file) = self.current_file_path() else { return; };
         let Some(line_no) = self.current_line_no() else { return; };
-        self.comments.retain(|c| !(c.file == file && c.line_no == line_no));
-        let _ = self.comment_store.save(&self.comments);
-        self.status_message = Some("Comment deleted.".into());
+        let next: Vec<_> = self.comments.iter().filter(|c| !(c.file == file && c.line_no == line_no)).cloned().collect();
+        if self.persist_comments(&next, "Comment deleted.") {
+            self.comments = next;
+        }
     }
 
     pub fn comment_for_current_line(&self) -> Option<&Comment> {
@@ -192,12 +202,10 @@ impl App {
         let text = self.format_comments_for_export();
         match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text.clone())) {
             Ok(_) => self.status_message = Some(format!("Copied {} comment(s) to clipboard.", self.comments.len())),
-            Err(_) => {
-                // fallback: dump to a temp file
-                let path = std::env::temp_dir().join("rustiq_comments.txt");
-                let _ = std::fs::write(&path, &text);
-                self.status_message = Some(format!("Clipboard unavailable. Written to {}", path.display()));
-            }
+            Err(_) => match write_private_export(&text) {
+                Ok(path) => self.status_message = Some(format!("Clipboard unavailable. Written to {}", path.display())),
+                Err(e) => self.status_message = Some(format!("Clipboard export failed: {e}")),
+            },
         }
     }
 
@@ -254,6 +262,44 @@ impl App {
         let total = self.all_diff_lines().len();
         if self.diff_line_cursor + 1 < total {
             self.diff_line_cursor += 1;
+            let visible = self.diff_viewport_height.max(1) as usize;
+            if self.diff_line_cursor >= self.diff_scroll as usize + visible {
+                self.diff_scroll = (self.diff_line_cursor + 1 - visible) as u16;
+            }
         }
+    }
+
+    fn persist_comments(&mut self, comments: &[Comment], ok: &str) -> bool {
+        match self.comment_store.save(comments) {
+            Ok(()) => {
+                self.status_message = Some(ok.into());
+                true
+            }
+            Err(e) => {
+                self.status_message = Some(format!("Save failed: {e}"));
+                false
+            }
+        }
+    }
+}
+
+fn write_private_export(text: &str) -> std::io::Result<PathBuf> {
+    let path = std::env::temp_dir().join(format!("rustiq-comments-{}.txt", Uuid::new_v4()));
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)?;
+        f.write_all(text.as_bytes())?;
+        Ok(path)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&path, text)?;
+        Ok(path)
     }
 }

@@ -14,10 +14,10 @@ use crate::theme::Theme;
 const GUTTER_WIDTH: u16 = 17;
 const GUTTER_SPACER: &str = "              ";
 
-pub fn render(f: &mut Frame, app: &App, area: Rect, hl: &dyn Highlighter) {
+pub fn render(f: &mut Frame, app: &mut App, area: Rect, hl: &dyn Highlighter) {
     let t = app.theme;
 
-    let Some(file) = app.current_file() else {
+    let Some(file) = app.current_file().cloned() else {
         let empty = Paragraph::new("No file selected")
             .style(t.base_style())
             .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded)
@@ -48,12 +48,12 @@ pub fn render(f: &mut Frame, app: &App, area: Rect, hl: &dyn Highlighter) {
     f.render_widget(block, area);
 
     match app.view_mode {
-        DiffViewMode::Stacked => render_stacked(f, app, file, inner, t, hl),
-        DiffViewMode::Split => render_split(f, app, file, inner, t, hl),
+        DiffViewMode::Stacked => render_stacked(f, app, &file, inner, t, hl),
+        DiffViewMode::Split => render_split(f, app, &file, inner, t, hl),
     }
 }
 
-fn render_stacked(f: &mut Frame, app: &App, file: &DiffFile, area: Rect, t: Theme, hl: &dyn Highlighter) {
+fn render_stacked(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Theme, hl: &dyn Highlighter) {
     let all_lines: Vec<&DiffLine> = file.hunks.iter().flat_map(|h| h.lines.iter()).collect();
     let source = all_lines.iter().map(|l| l.content.as_str()).collect::<Vec<_>>().join("\n");
     let highlighted = hl.highlight(&file.path, &source, t.is_dark());
@@ -71,13 +71,15 @@ fn render_stacked(f: &mut Frame, app: &App, file: &DiffFile, area: Rect, t: Them
         |_line| true,
     );
 
+    app.diff_viewport_height = area.height.max(1);
+
     let para = Paragraph::new(lines)
         .style(t.base_style())
         .scroll((app.diff_scroll, 0));
     f.render_widget(para, area);
 }
 
-fn render_split(f: &mut Frame, app: &App, file: &DiffFile, area: Rect, t: Theme, hl: &dyn Highlighter) {
+fn render_split(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Theme, hl: &dyn Highlighter) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -87,34 +89,16 @@ fn render_split(f: &mut Frame, app: &App, file: &DiffFile, area: Rect, t: Theme,
     let source = all_lines.iter().map(|l| l.content.as_str()).collect::<Vec<_>>().join("\n");
     let highlighted = hl.highlight(&file.path, &source, t.is_dark());
     let pane_content_width = chunks[1].width.saturating_sub(GUTTER_WIDTH).max(12) as usize;
+    app.diff_viewport_height = chunks[1].height.max(1);
 
-    // left: old (context + removed)
-    let left_lines = render_lines_with_comments(
-        &all_lines,
-        &highlighted,
-        RenderCtx {
-            app,
-            file,
-            theme: t,
-            cursor: app.diff_line_cursor,
-            content_width: pane_content_width,
-        },
-        |line| !matches!(line.kind, DiffLineKind::Added),
-    );
-
-    // right: new (context + added)
-    let right_lines = render_lines_with_comments(
-        &all_lines,
-        &highlighted,
-        RenderCtx {
-            app,
-            file,
-            theme: t,
-            cursor: app.diff_line_cursor,
-            content_width: pane_content_width,
-        },
-        |line| !matches!(line.kind, DiffLineKind::Removed),
-    );
+    let ctx = RenderCtx {
+        app,
+        file,
+        theme: t,
+        cursor: app.diff_line_cursor,
+        content_width: pane_content_width,
+    };
+    let (left_lines, right_lines) = render_paired_split(&all_lines, &highlighted, ctx);
 
     let left_block = Block::default()
         .borders(Borders::RIGHT)
@@ -231,6 +215,58 @@ where
         }
     }
     lines
+}
+
+fn render_paired_split<'a>(
+    all_lines: &[&DiffLine],
+    highlighted: &[StyledLine],
+    ctx: RenderCtx<'_>,
+) -> (Vec<Line<'a>>, Vec<Line<'a>>) {
+    let blank = Line::from(Span::styled(" ", Style::default().bg(ctx.theme.bg())));
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    for (i, dl) in all_lines.iter().enumerate() {
+        let hl_spans = highlighted.get(i).cloned().unwrap_or_default();
+        let comment = dl
+            .new_lineno
+            .and_then(|n| ctx.app.comment_for_line(&ctx.file.path, n as usize));
+        let code = diff_line_to_ratatui(
+            dl,
+            hl_spans,
+            ctx.theme,
+            i,
+            ctx.cursor,
+            comment.is_some() && !matches!(dl.kind, DiffLineKind::Removed),
+        );
+        match dl.kind {
+            DiffLineKind::Added => {
+                left.push(blank.clone());
+                right.push(code);
+            }
+            DiffLineKind::Removed => {
+                left.push(code);
+                right.push(blank.clone());
+            }
+            DiffLineKind::Context => {
+                left.push(code.clone());
+                right.push(code);
+            }
+        }
+        if let Some(comment) = comment {
+            if !matches!(dl.kind, DiffLineKind::Removed) {
+                let rows = render_inline_comment_rows(
+                    comment.text.as_str(),
+                    comment.stale,
+                    ctx.theme,
+                    ctx.content_width,
+                );
+                let n = rows.len();
+                right.extend(rows);
+                left.extend((0..n).map(|_| blank.clone()));
+            }
+        }
+    }
+    (left, right)
 }
 
 fn render_inline_comment_rows<'a>(

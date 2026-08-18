@@ -77,7 +77,7 @@ Comments are stored in `.rustiq/comments.json` inside the repository (add to `.g
 
 Hexagonal (ports & adapters):
 
-```
+```text
 domain/     — pure data types (DiffFile, Hunk, Comment, …)
 ports/      — GitRepository + Highlighter + CommentStore traits
 adapters/   — git2, syntect, JSON file implementations

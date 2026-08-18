@@ -20,7 +20,9 @@ impl Git2Repository {
 impl GitRepository for Git2Repository {
     fn log(&self) -> Result<Vec<Baseline>> {
         let mut walk = self.repo.revwalk()?;
-        walk.push_head()?;
+        if walk.push_head().is_err() {
+            return Ok(vec![Baseline::WorkingTree]);
+        }
         walk.set_sorting(Sort::TIME)?;
 
         let mut baselines = vec![Baseline::WorkingTree];
@@ -52,20 +54,15 @@ impl GitRepository for Git2Repository {
 impl Git2Repository {
     fn diff_working_tree(&self) -> Result<Vec<DiffFile>> {
         let mut opts = DiffOptions::new();
-        opts.include_untracked(true).recurse_untracked_dirs(true);
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .show_untracked_content(true);
 
         let head_tree = self.repo.head().ok().and_then(|h| h.peel_to_tree().ok());
-        let staged = self.repo.diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))?;
-        let unstaged = self.repo.diff_index_to_workdir(None, Some(&mut opts))?;
-
-        let mut files = parse_git2_diff(&staged)?;
-        let unstaged_files = parse_git2_diff(&unstaged)?;
-        for uf in unstaged_files {
-            if !files.iter().any(|f| f.path == uf.path) {
-                files.push(uf);
-            }
-        }
-        Ok(files)
+        let diff = self
+            .repo
+            .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut opts))?;
+        parse_git2_diff(&diff)
     }
 
     fn diff_commit(&self, oid_str: &str) -> Result<Vec<DiffFile>> {

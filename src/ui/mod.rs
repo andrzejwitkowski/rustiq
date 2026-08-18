@@ -14,7 +14,7 @@ use ratatui::{
 use crate::app::{App, DiffViewMode, Screen};
 use crate::ports::Highlighter;
 
-pub fn render(f: &mut Frame, app: &App, hl: &dyn Highlighter) {
+pub fn render(f: &mut Frame, app: &mut App, hl: &dyn Highlighter) {
     let t = app.theme;
 
     match app.screen {

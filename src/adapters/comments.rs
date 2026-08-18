@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use anyhow::Result;
 use sha2::{Digest, Sha256};
@@ -33,12 +34,18 @@ impl CommentStore for JsonCommentStore {
             return Ok(vec![]);
         }
         let data = fs::read_to_string(&self.path)?;
-        Ok(serde_json::from_str(&data).unwrap_or_default())
+        Ok(serde_json::from_str(&data)?)
     }
 
     fn save(&self, comments: &[Comment]) -> Result<()> {
         let data = serde_json::to_string_pretty(comments)?;
-        fs::write(&self.path, data)?;
+        let tmp = self.path.with_extension("json.tmp");
+        {
+            let mut f = File::create(&tmp)?;
+            f.write_all(data.as_bytes())?;
+            f.sync_all()?;
+        }
+        fs::rename(&tmp, &self.path)?;
         Ok(())
     }
 }
