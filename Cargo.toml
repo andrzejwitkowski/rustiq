@@ -1,0 +1,21 @@
+[package]
+name = "rustiq"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "rustiq"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+git2 = { version = "0.19", default-features = false }
+syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "default-themes", "html", "regex-fancy"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+sha2 = "0.10"
+chrono = { version = "0.4", features = ["serde"] }
+arboard = "3"
+anyhow = "1"
