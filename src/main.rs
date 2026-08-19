@@ -20,8 +20,9 @@ use adapters::{comments::JsonCommentStore, git::Git2Repository, highlight::Synte
 use app::{App, Screen};
 use ports::Highlighter;
 
-// ponytail: /dev/tty fallback only; no DummyBackend or text-mode path needed —
-// ttyd exposes a real PTY via /dev/tty even when stdout is a WebSocket pipe.
+// ponytail: when stdout is not a TTY (ttyd/WebSocket), open /dev/tty R/W and
+// dup2 it onto stdin so crossterm's ioctl calls land on the real PTY.
+// Ceiling: requires /dev/tty to exist; fails cleanly if it doesn't.
 enum Tty {
     Stdout,
     DevTty(File),
@@ -42,11 +43,23 @@ struct TerminalGuard {
 
 impl TerminalGuard {
     fn new(use_dev_tty: bool) -> Result<Self> {
-        enable_raw_mode().context("enable_raw_mode")?;
         if use_dev_tty {
+            // dup2 /dev/tty onto stdin so crossterm's tty_fd() ioctl hits the PTY
+            #[cfg(unix)]
+            {
+                use std::os::unix::io::AsRawFd;
+                let tty = File::options().read(true).write(true).open("/dev/tty")
+                    .context("/dev/tty not available — is this a real terminal?")?;
+                let ret = unsafe { libc::dup2(tty.as_raw_fd(), libc::STDIN_FILENO) };
+                if ret < 0 {
+                    return Err(io::Error::last_os_error()).context("dup2 /dev/tty -> stdin");
+                }
+            }
+            enable_raw_mode().context("enable_raw_mode")?;
             let mut tty = File::options().write(true).open("/dev/tty")?;
             execute!(tty, EnterAlternateScreen, EnableMouseCapture)?;
         } else {
+            enable_raw_mode().context("enable_raw_mode")?;
             execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
         }
         Ok(Self { use_dev_tty })
