@@ -71,10 +71,10 @@ pub fn render(f: &mut Frame, app: &mut App, hl: &dyn Highlighter) {
             .style(Style::default().bg(t.selection_bg()));
             f.render_widget(status, bar[0]);
 
-            let build_info = format!(" {} {} ", env!("GIT_HASH"), env!("GIT_DATE"));
-            let info = Paragraph::new(Line::from(vec![
-                Span::styled(build_info, Style::default().fg(t.selection_bg()).bg(t.fg())),
-            ]))
+            let info = Paragraph::new(Span::styled(
+                concat!(" ", env!("GIT_HASH"), " ", env!("GIT_DATE"), " "),
+                Style::default().fg(t.selection_bg()).bg(t.fg()),
+            ))
             .alignment(Alignment::Right);
             f.render_widget(info, bar[1]);
 
