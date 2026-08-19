@@ -59,15 +59,18 @@ impl TerminalGuard {
             Tty::Stdout
         };
         enable_raw_mode().context("enable_raw_mode")?;
-        execute!(tty, EnterAlternateScreen, EnableMouseCapture)?;
+        if let Err(e) = execute!(tty, EnterAlternateScreen, EnableMouseCapture) {
+            let _ = disable_raw_mode();
+            let _ = execute!(tty, LeaveAlternateScreen, DisableMouseCapture, crossterm::cursor::Show);
+            return Err(e).context("terminal setup");
+        }
         Ok(Self(tty))
     }
 
-    fn backend_tty(&self) -> Tty {
+    fn backend_tty(&self) -> io::Result<Tty> {
         match &self.0 {
-            Tty::Stdout => Tty::Stdout,
-            // ponytail: try_clone shares the fd; both guard and terminal write to same PTY
-            Tty::DevTty(f) => f.try_clone().map(Tty::DevTty).unwrap_or(Tty::Stdout),
+            Tty::Stdout => Ok(Tty::Stdout),
+            Tty::DevTty(f) => f.try_clone().map(Tty::DevTty),
         }
     }
 }
@@ -87,7 +90,7 @@ fn main() -> Result<()> {
     let mut app = App::new(Box::new(git_repo), comment_store, cwd.join(".rustiq"))?;
 
     let guard = TerminalGuard::new()?;
-    let backend_tty = guard.backend_tty();
+    let backend_tty = guard.backend_tty().context("clone /dev/tty for backend")?;
     let mut terminal = Terminal::new(CrosstermBackend::new(backend_tty))?;
     run_loop(&mut terminal, &mut app, &highlighter)
 }
