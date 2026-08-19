@@ -37,45 +37,45 @@ impl Write for Tty {
     }
 }
 
-struct TerminalGuard {
-    use_dev_tty: bool,
-}
+struct TerminalGuard(Tty);
 
 impl TerminalGuard {
-    fn new(use_dev_tty: bool) -> Result<Self> {
-        if use_dev_tty {
-            // dup2 /dev/tty onto stdin so crossterm's tty_fd() ioctl hits the PTY
+    fn new() -> Result<Self> {
+        let mut tty = if io::stdout().is_terminal() {
+            Tty::Stdout
+        } else {
             #[cfg(unix)]
             {
                 use std::os::unix::io::AsRawFd;
-                let tty = File::options().read(true).write(true).open("/dev/tty")
+                let dev = File::options().read(true).write(true).open("/dev/tty")
                     .context("/dev/tty not available — is this a real terminal?")?;
-                let ret = unsafe { libc::dup2(tty.as_raw_fd(), libc::STDIN_FILENO) };
+                let ret = unsafe { libc::dup2(dev.as_raw_fd(), libc::STDIN_FILENO) };
                 if ret < 0 {
                     return Err(io::Error::last_os_error()).context("dup2 /dev/tty -> stdin");
                 }
+                Tty::DevTty(dev)
             }
-            enable_raw_mode().context("enable_raw_mode")?;
-            let mut tty = File::options().write(true).open("/dev/tty")?;
-            execute!(tty, EnterAlternateScreen, EnableMouseCapture)?;
-        } else {
-            enable_raw_mode().context("enable_raw_mode")?;
-            execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+            #[cfg(not(unix))]
+            Tty::Stdout
+        };
+        enable_raw_mode().context("enable_raw_mode")?;
+        execute!(tty, EnterAlternateScreen, EnableMouseCapture)?;
+        Ok(Self(tty))
+    }
+
+    fn backend_tty(&self) -> Tty {
+        match &self.0 {
+            Tty::Stdout => Tty::Stdout,
+            // ponytail: try_clone shares the fd; both guard and terminal write to same PTY
+            Tty::DevTty(f) => f.try_clone().map(Tty::DevTty).unwrap_or(Tty::Stdout),
         }
-        Ok(Self { use_dev_tty })
     }
 }
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        if self.use_dev_tty {
-            if let Ok(mut tty) = File::options().write(true).open("/dev/tty") {
-                let _ = execute!(tty, LeaveAlternateScreen, DisableMouseCapture, crossterm::cursor::Show);
-            }
-        } else {
-            let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture, crossterm::cursor::Show);
-        }
+        let _ = execute!(self.0, LeaveAlternateScreen, DisableMouseCapture, crossterm::cursor::Show);
     }
 }
 
@@ -86,15 +86,9 @@ fn main() -> Result<()> {
     let highlighter = SyntectHighlighter::new();
     let mut app = App::new(Box::new(git_repo), comment_store, cwd.join(".rustiq"))?;
 
-    let use_dev_tty = !io::stdout().is_terminal();
-    let _guard = TerminalGuard::new(use_dev_tty)?;
-
-    let tty: Tty = if use_dev_tty {
-        Tty::DevTty(File::options().write(true).open("/dev/tty").context("/dev/tty")?)
-    } else {
-        Tty::Stdout
-    };
-    let mut terminal = Terminal::new(CrosstermBackend::new(tty))?;
+    let guard = TerminalGuard::new()?;
+    let backend_tty = guard.backend_tty();
+    let mut terminal = Terminal::new(CrosstermBackend::new(backend_tty))?;
     run_loop(&mut terminal, &mut app, &highlighter)
 }
 
