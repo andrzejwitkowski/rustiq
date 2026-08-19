@@ -41,7 +41,7 @@ fn main() -> Result<()> {
     let git_repo = Git2Repository::open(&cwd)?;
     let comment_store = JsonCommentStore::new(&cwd)?;
     let highlighter = SyntectHighlighter::new();
-    let mut app = App::new(Box::new(git_repo), comment_store)?;
+    let mut app = App::new(Box::new(git_repo), comment_store, cwd.join(".rustiq"))?;
 
     let _guard = TerminalGuard::new()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;

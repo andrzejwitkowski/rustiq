@@ -50,6 +50,7 @@ pub struct App {
     // comments
     pub comments: Vec<Comment>,
     pub comment_store: JsonCommentStore,
+    pub rustiq_dir: PathBuf,
     // comment input overlay
     pub comment_input_text: String,
     pub comment_editing_id: Option<Uuid>,
@@ -62,7 +63,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(repo: Box<dyn GitRepository>, comment_store: JsonCommentStore) -> anyhow::Result<Self> {
+    pub fn new(repo: Box<dyn GitRepository>, comment_store: JsonCommentStore, rustiq_dir: PathBuf) -> anyhow::Result<Self> {
         let baselines = repo.log()?;
         let comments = comment_store.load()?;
         // stale detection deferred to after first diff load (need file content)
@@ -79,6 +80,7 @@ impl App {
             diff_line_cursor: 0,
             comments,
             comment_store,
+            rustiq_dir,
             comment_input_text: String::new(),
             comment_editing_id: None,
             comment_export_scroll: 0,
@@ -134,10 +136,11 @@ impl App {
         self.comment_export_text = self.format_comments_for_export();
         self.comment_export_line_count = self.comment_export_text.lines().count() as u16;
         self.comment_export_scroll = 0;
-        self.comment_export_saved_path = match write_private_export(&self.comment_export_text) {
-            Ok(path) => Some(path),
+        let export_path = self.rustiq_dir.join("export.txt");
+        self.comment_export_saved_path = match std::fs::write(&export_path, &self.comment_export_text) {
+            Ok(()) => Some(export_path),
             Err(e) => {
-                self.status_message = Some(format!("Warning: could not write export file: {e}"));
+                self.status_message = Some(format!("Warning: could not write export: {e}"));
                 None
             }
         };
