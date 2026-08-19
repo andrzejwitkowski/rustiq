@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, EXPORT_TMP_PATH};
+use crate::app::App;
 
 const POPUP_HEIGHT_PERCENT: u16 = 70;
 const POPUP_WIDTH_PERCENT: u16 = 80;
@@ -79,7 +79,13 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         Span::styled("↑↓ / j k", Style::default().fg(t.added_fg()).add_modifier(Modifier::BOLD)),
         Span::styled(" scroll  ", Style::default().fg(t.comment_text_fg()).bg(t.comment_bg())),
         Span::styled("Esc / q", Style::default().fg(t.removed_fg()).add_modifier(Modifier::BOLD)),
-        Span::styled(format!(" close  saved: {EXPORT_TMP_PATH}"), Style::default().fg(t.comment_text_fg()).bg(t.comment_bg())),
+        Span::styled(
+            match &app.comment_export_saved_path {
+                Some(p) => format!(" close  saved: {}", p.display()),
+                None => " close".to_string(),
+            },
+            Style::default().fg(t.comment_text_fg()).bg(t.comment_bg()),
+        ),
     ]))
     .alignment(Alignment::Center);
     f.render_widget(help, chunks[1]);
