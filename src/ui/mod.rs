@@ -59,12 +59,24 @@ pub fn render(f: &mut Frame, app: &mut App, hl: &dyn Highlighter) {
                     if stale_count > 0 { format!(" ({stale_count} stale)") } else { String::new() },
                 )
             };
+            let bar = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(0), Constraint::Length(32)])
+                .split(rows[1]);
+
             let status = Paragraph::new(Line::from(vec![
                 Span::styled(status_text, Style::default().fg(t.fg()).bg(t.selection_bg())),
             ]))
             .alignment(Alignment::Left)
             .style(Style::default().bg(t.selection_bg()));
-            f.render_widget(status, rows[1]);
+            f.render_widget(status, bar[0]);
+
+            let build_info = format!(" {} {} ", env!("GIT_HASH"), env!("GIT_DATE"));
+            let info = Paragraph::new(Line::from(vec![
+                Span::styled(build_info, Style::default().fg(t.selection_bg()).bg(t.fg())),
+            ]))
+            .alignment(Alignment::Right);
+            f.render_widget(info, bar[1]);
 
             if app.screen == Screen::CommentInput {
                 comment_input::render(f, app, area);
