@@ -58,6 +58,7 @@ pub struct App {
     pub comment_export_text: String,
     pub comment_export_line_count: u16,
     pub comment_export_saved_path: Option<PathBuf>,
+    pub comment_export_write_error: Option<String>,
     pub status_message: Option<String>,
     pub diff_viewport_height: u16,
 }
@@ -87,6 +88,7 @@ impl App {
             comment_export_text: String::new(),
             comment_export_line_count: 0,
             comment_export_saved_path: None,
+            comment_export_write_error: None,
             status_message: None,
             diff_viewport_height: 1,
         })
@@ -137,11 +139,14 @@ impl App {
         self.comment_export_line_count = self.comment_export_text.lines().count() as u16;
         self.comment_export_scroll = 0;
         let export_path = self.rustiq_dir.join("export.txt");
-        self.comment_export_saved_path = match std::fs::write(&export_path, &self.comment_export_text) {
-            Ok(()) => Some(export_path),
+        match std::fs::write(&export_path, &self.comment_export_text) {
+            Ok(()) => {
+                self.comment_export_saved_path = Some(export_path);
+                self.comment_export_write_error = None;
+            }
             Err(e) => {
-                self.status_message = Some(format!("Warning: could not write export: {e}"));
-                None
+                self.comment_export_saved_path = None;
+                self.comment_export_write_error = Some(format!("write failed: {e} (path: {})", export_path.display()));
             }
         };
         self.screen = Screen::CommentExport;

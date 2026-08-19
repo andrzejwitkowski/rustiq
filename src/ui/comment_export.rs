@@ -75,17 +75,23 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         );
     }
 
+    let footer_text = if let Some(p) = &app.comment_export_saved_path {
+        format!(" close  saved: {}", p.display())
+    } else if let Some(e) = &app.comment_export_write_error {
+        format!(" close  ⚠ {e}")
+    } else {
+        " close".to_string()
+    };
+    let footer_style = if app.comment_export_write_error.is_some() {
+        Style::default().fg(t.removed_fg()).bg(t.comment_bg())
+    } else {
+        Style::default().fg(t.comment_text_fg()).bg(t.comment_bg())
+    };
     let help = Paragraph::new(Line::from(vec![
         Span::styled("↑↓ / j k", Style::default().fg(t.added_fg()).add_modifier(Modifier::BOLD)),
         Span::styled(" scroll  ", Style::default().fg(t.comment_text_fg()).bg(t.comment_bg())),
         Span::styled("Esc / q", Style::default().fg(t.removed_fg()).add_modifier(Modifier::BOLD)),
-        Span::styled(
-            match &app.comment_export_saved_path {
-                Some(p) => format!(" close  saved: {}", p.display()),
-                None => " close".to_string(),
-            },
-            Style::default().fg(t.comment_text_fg()).bg(t.comment_bg()),
-        ),
+        Span::styled(footer_text, footer_style),
     ]))
     .alignment(Alignment::Center);
     f.render_widget(help, chunks[1]);
