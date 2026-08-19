@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use uuid::Uuid;
 
+pub const EXPORT_TMP_PATH: &str = "/tmp/rustiq-export.txt";
+
 use crate::adapters::comments::JsonCommentStore;
 use crate::domain::{Baseline, Comment, DiffFile};
 use crate::ports::{CommentStore, GitRepository};
@@ -132,6 +134,9 @@ impl App {
         self.comment_export_text = self.format_comments_for_export();
         self.comment_export_line_count = self.comment_export_text.lines().count() as u16;
         self.comment_export_scroll = 0;
+        if let Err(e) = std::fs::write(EXPORT_TMP_PATH, &self.comment_export_text) {
+            self.status_message = Some(format!("Warning: could not write {EXPORT_TMP_PATH}: {e}"));
+        }
         self.screen = Screen::CommentExport;
     }
 
