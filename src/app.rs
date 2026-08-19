@@ -27,6 +27,7 @@ pub enum Screen {
     BaselinePicker,
     Main,
     CommentInput,
+    CommentExport,
 }
 
 pub struct App {
@@ -52,6 +53,9 @@ pub struct App {
     // comment input overlay
     pub comment_input_text: String,
     pub comment_editing_id: Option<Uuid>,
+    pub comment_export_scroll: u16,
+    pub comment_export_text: String,
+    pub comment_export_line_count: u16,
     pub status_message: Option<String>,
     pub diff_viewport_height: u16,
 }
@@ -76,6 +80,9 @@ impl App {
             comment_store,
             comment_input_text: String::new(),
             comment_editing_id: None,
+            comment_export_scroll: 0,
+            comment_export_text: String::new(),
+            comment_export_line_count: 0,
             status_message: None,
             diff_viewport_height: 1,
         })
@@ -116,6 +123,17 @@ impl App {
     }
 
     // ── comment operations ──────────────────────────────────────────────────
+
+    pub fn open_comment_export(&mut self) {
+        if self.comments.is_empty() {
+            self.status_message = Some("No comments to view.".into());
+            return;
+        }
+        self.comment_export_text = self.format_comments_for_export();
+        self.comment_export_line_count = self.comment_export_text.lines().count() as u16;
+        self.comment_export_scroll = 0;
+        self.screen = Screen::CommentExport;
+    }
 
     pub fn open_comment_input(&mut self) {
         let existing = self.comment_for_current_line().map(|c| (c.id, c.text.clone()));
@@ -209,7 +227,7 @@ impl App {
         }
     }
 
-    fn format_comments_for_export(&self) -> String {
+    pub fn format_comments_for_export(&self) -> String {
         let mut out = String::new();
         for c in &self.comments {
             out.push_str(&format!("=== {} : line {} ===\n", c.file.display(), c.line_no));

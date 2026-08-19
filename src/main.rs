@@ -73,6 +73,10 @@ fn run_loop(
                 handle_comment_input(app, key);
                 false
             }
+            Screen::CommentExport => {
+                handle_comment_export(app, key);
+                false
+            }
         };
         if should_quit {
             return Ok(());
@@ -94,7 +98,7 @@ fn handle_baseline(app: &mut App, key: event::KeyEvent) -> Result<bool> {
 fn handle_main(app: &mut App, key: event::KeyEvent) -> Result<bool> {
     match (key.modifiers, key.code) {
         (_, KeyCode::Char('q')) | (_, KeyCode::Esc) => return Ok(true),
-        (_, KeyCode::Char('v')) | (_, KeyCode::Char('V')) => {
+        (_, KeyCode::Char('s')) | (_, KeyCode::Char('S')) => {
             app.view_mode = app.view_mode.toggle();
         }
         (_, KeyCode::Char('t')) | (_, KeyCode::Char('T')) => {
@@ -120,6 +124,7 @@ fn handle_main(app: &mut App, key: event::KeyEvent) -> Result<bool> {
         (_, KeyCode::Char('e')) => app.open_comment_input(),
         (_, KeyCode::Char('d')) => app.delete_comment_on_current_line(),
         (_, KeyCode::Char('C')) => app.export_comments_to_clipboard(),
+        (_, KeyCode::Char('v')) | (_, KeyCode::Char('V')) => app.open_comment_export(),
         _ => {}
     }
     Ok(false)
@@ -135,6 +140,26 @@ fn handle_comment_input(app: &mut App, key: event::KeyEvent) {
         KeyCode::Enter => app.save_comment(),
         KeyCode::Backspace => { app.comment_input_text.pop(); }
         KeyCode::Char(c) => app.comment_input_text.push(c),
+        _ => {}
+    }
+}
+
+fn handle_comment_export(app: &mut App, key: event::KeyEvent) {
+    let max = app.comment_export_line_count.saturating_sub(1);
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => app.screen = app::Screen::Main,
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.comment_export_scroll = app.comment_export_scroll.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.comment_export_scroll = app.comment_export_scroll.saturating_add(1).min(max);
+        }
+        KeyCode::PageUp => {
+            app.comment_export_scroll = app.comment_export_scroll.saturating_sub(10);
+        }
+        KeyCode::PageDown => {
+            app.comment_export_scroll = app.comment_export_scroll.saturating_add(10).min(max);
+        }
         _ => {}
     }
 }

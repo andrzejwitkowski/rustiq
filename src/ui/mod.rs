@@ -1,4 +1,5 @@
 pub mod baseline;
+pub mod comment_export;
 pub mod comment_input;
 pub mod diff_view;
 pub mod file_list;
@@ -21,7 +22,7 @@ pub fn render(f: &mut Frame, app: &mut App, hl: &dyn Highlighter) {
         Screen::BaselinePicker => {
             baseline::render(f, app, f.area());
         }
-        Screen::Main | Screen::CommentInput => {
+        Screen::Main | Screen::CommentInput | Screen::CommentExport => {
             let area = f.area();
 
             // vertical split: main area + status bar
@@ -50,7 +51,7 @@ pub fn render(f: &mut Frame, app: &mut App, hl: &dyn Highlighter) {
                 msg.clone()
             } else {
                 format!(
-                    " {} | Theme: {} | {} | 💬 {} comments{}  c add · e edit · d del · C copy · V view · T theme · r refresh · q quit ",
+                    " {} | Theme: {} | {} | 💬 {} comments{}  c add · e edit · d del · C copy · V view · s split · T theme · r refresh · q quit ",
                     mode_label,
                     t.name(),
                     if app.files.is_empty() { "no changes".into() } else { format!("{} files", app.files.len()) },
@@ -67,6 +68,9 @@ pub fn render(f: &mut Frame, app: &mut App, hl: &dyn Highlighter) {
 
             if app.screen == Screen::CommentInput {
                 comment_input::render(f, app, area);
+            }
+            if app.screen == Screen::CommentExport {
+                comment_export::render(f, app, area);
             }
         }
     }
