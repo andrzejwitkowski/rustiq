@@ -16,9 +16,14 @@ Run inside any git repository:
 
 ```bash
 rustiq
+rustiq --inline   # PTY hosts that cannot read the alternate screen
 ```
 
 On launch, choose a baseline (commit or working tree). Then browse changed files and their diffs.
+
+## DeepSeek Harness
+
+Plugin: [`dsh-tool-rustiq/`](dsh-tool-rustiq/). Merge [`examples/cordis.patch.yml`](dsh-tool-rustiq/examples/cordis.patch.yml) into `~/.dsh/profiles/web/cordis.patch.yml`, set the absolute plugin path, put `rustiq` on PATH, restart `dsh web`. Tools: `rustiq_open` / `rustiq_send` / `rustiq_read` / `rustiq_close`.
 
 ## Keybindings
 
@@ -38,13 +43,14 @@ On launch, choose a baseline (commit or working tree). Then browse changed files
 | `Tab` / `Shift+Tab` | Next / previous file |
 | `Shift+↑/↓` or `Shift+j/k` | Navigate file list |
 | `PageUp/PageDown` | Scroll diff |
-| `V` | Toggle split ↔ stacked view |
+| `s` | Toggle split ↔ stacked view |
 | `T` | Cycle theme |
 | `r` | Refresh diff |
 | `c` | Add comment on current line |
 | `e` | Edit comment on current line |
 | `d` | Delete comment on current line |
 | `C` | Copy all comments to clipboard |
+| `V` | Open comment export (writes `.rustiq/export.txt`) |
 | `q` / `Esc` | Quit |
 
 ### Comment input

@@ -1,0 +1,26 @@
+{
+  "name": "@andrzejwitkowski/dsh-tool-rustiq",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness tools to drive the rustiq TUI over ctx.terminals",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "examples",
+    "README.md"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-terminal": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.8",
+    "@deepseek-ai/dsh-system-prompt": ">=0.1.0-rc.8"
+  },
+  "scripts": {
+    "test": "node --test src/binary.test.js src/plugin.test.js"
+  }
+}

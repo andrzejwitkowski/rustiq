@@ -5,16 +5,17 @@ mod ports;
 mod theme;
 mod ui;
 
-use std::fs::File;
-use std::io::{self, IsTerminal, Write};
-use std::time::Duration;
 use anyhow::{Context, Result};
 use crossterm::{
+    cursor::{Hide, Show},
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+use std::fs::File;
+use std::io::{self, IsTerminal, Write};
+use std::time::Duration;
 
 use adapters::{comments::JsonCommentStore, git::Git2Repository, highlight::SyntectHighlighter};
 use app::{App, Screen};
@@ -30,45 +31,95 @@ enum Tty {
 
 impl Write for Tty {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        match self { Tty::Stdout => io::stdout().write(buf), Tty::DevTty(f) => f.write(buf) }
+        match self {
+            Tty::Stdout => io::stdout().write(buf),
+            Tty::DevTty(f) => f.write(buf),
+        }
     }
     fn flush(&mut self) -> io::Result<()> {
-        match self { Tty::Stdout => io::stdout().flush(), Tty::DevTty(f) => f.flush() }
+        match self {
+            Tty::Stdout => io::stdout().flush(),
+            Tty::DevTty(f) => f.flush(),
+        }
     }
 }
 
-struct TerminalGuard(Tty);
+#[derive(Clone, Copy)]
+enum UiMode {
+    Alternate,
+    Inline,
+}
+
+impl UiMode {
+    fn from_args() -> Self {
+        if std::env::args().any(|a| a == "--inline") {
+            Self::Inline
+        } else {
+            Self::Alternate
+        }
+    }
+
+    fn enter(self, tty: &mut Tty) -> io::Result<()> {
+        match self {
+            Self::Inline => execute!(tty, Hide),
+            Self::Alternate => execute!(tty, EnterAlternateScreen, EnableMouseCapture),
+        }
+    }
+
+    fn leave(self, tty: &mut Tty) {
+        let _ = disable_raw_mode();
+        match self {
+            Self::Inline => {
+                let _ = execute!(tty, Show);
+            }
+            Self::Alternate => {
+                let _ = execute!(tty, LeaveAlternateScreen, DisableMouseCapture, Show);
+            }
+        }
+    }
+}
+
+struct TerminalGuard {
+    tty: Tty,
+    mode: UiMode,
+}
+
+fn open_tty() -> Result<Tty> {
+    if io::stdout().is_terminal() {
+        return Ok(Tty::Stdout);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let dev = File::options()
+            .read(true)
+            .write(true)
+            .open("/dev/tty")
+            .context("/dev/tty not available — is this a real terminal?")?;
+        let ret = unsafe { libc::dup2(dev.as_raw_fd(), libc::STDIN_FILENO) };
+        if ret < 0 {
+            return Err(io::Error::last_os_error()).context("dup2 /dev/tty -> stdin");
+        }
+        Ok(Tty::DevTty(dev))
+    }
+    #[cfg(not(unix))]
+    Ok(Tty::Stdout)
+}
 
 impl TerminalGuard {
     fn new() -> Result<Self> {
-        let mut tty = if io::stdout().is_terminal() {
-            Tty::Stdout
-        } else {
-            #[cfg(unix)]
-            {
-                use std::os::unix::io::AsRawFd;
-                let dev = File::options().read(true).write(true).open("/dev/tty")
-                    .context("/dev/tty not available — is this a real terminal?")?;
-                let ret = unsafe { libc::dup2(dev.as_raw_fd(), libc::STDIN_FILENO) };
-                if ret < 0 {
-                    return Err(io::Error::last_os_error()).context("dup2 /dev/tty -> stdin");
-                }
-                Tty::DevTty(dev)
-            }
-            #[cfg(not(unix))]
-            Tty::Stdout
-        };
+        let mode = UiMode::from_args();
+        let mut tty = open_tty()?;
         enable_raw_mode().context("enable_raw_mode")?;
-        if let Err(e) = execute!(tty, EnterAlternateScreen, EnableMouseCapture) {
-            let _ = disable_raw_mode();
-            let _ = execute!(tty, LeaveAlternateScreen, DisableMouseCapture, crossterm::cursor::Show);
+        if let Err(e) = mode.enter(&mut tty) {
+            mode.leave(&mut tty);
             return Err(e).context("terminal setup");
         }
-        Ok(Self(tty))
+        Ok(Self { tty, mode })
     }
 
     fn backend_tty(&self) -> io::Result<Tty> {
-        match &self.0 {
+        match &self.tty {
             Tty::Stdout => Ok(Tty::Stdout),
             Tty::DevTty(f) => f.try_clone().map(Tty::DevTty),
         }
@@ -77,8 +128,7 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(self.0, LeaveAlternateScreen, DisableMouseCapture, crossterm::cursor::Show);
+        self.mode.leave(&mut self.tty);
     }
 }
 
@@ -107,7 +157,9 @@ fn run_loop(
             continue;
         }
 
-        let Event::Key(key) = event::read()? else { continue };
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
 
         if app.status_message.is_some() && !matches!(key.code, KeyCode::Char('C')) {
             app.status_message = None;
@@ -135,7 +187,9 @@ fn handle_baseline(app: &mut App, key: event::KeyEvent) -> Result<bool> {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => return Ok(true),
         KeyCode::Up | KeyCode::Char('k') if app.baseline_cursor > 0 => app.baseline_cursor -= 1,
-        KeyCode::Down | KeyCode::Char('j') if app.baseline_cursor + 1 < app.baselines.len() => app.baseline_cursor += 1,
+        KeyCode::Down | KeyCode::Char('j') if app.baseline_cursor + 1 < app.baselines.len() => {
+            app.baseline_cursor += 1
+        }
         KeyCode::Enter => app.select_baseline()?,
         _ => {}
     }
@@ -155,10 +209,14 @@ fn handle_main(app: &mut App, key: event::KeyEvent) -> Result<bool> {
             app.select_baseline()?;
         }
         (_, KeyCode::Left) | (_, KeyCode::Char('h')) => {}
-        (_, KeyCode::Up) | (_, KeyCode::Char('k')) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+        (_, KeyCode::Up) | (_, KeyCode::Char('k'))
+            if key.modifiers.contains(KeyModifiers::SHIFT) =>
+        {
             app.file_up();
         }
-        (_, KeyCode::Down) | (_, KeyCode::Char('j')) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+        (_, KeyCode::Down) | (_, KeyCode::Char('j'))
+            if key.modifiers.contains(KeyModifiers::SHIFT) =>
+        {
             app.file_down();
         }
         (_, KeyCode::Up) | (_, KeyCode::Char('k')) => app.diff_line_up(),
@@ -185,7 +243,9 @@ fn handle_comment_input(app: &mut App, key: event::KeyEvent) {
             app.comment_editing_id = None;
         }
         KeyCode::Enter => app.save_comment(),
-        KeyCode::Backspace => { app.comment_input_text.pop(); }
+        KeyCode::Backspace => {
+            app.comment_input_text.pop();
+        }
         KeyCode::Char(c) => app.comment_input_text.push(c),
         _ => {}
     }

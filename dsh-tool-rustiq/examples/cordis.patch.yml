@@ -1,0 +1,12 @@
+# Copy into ~/.dsh/profiles/web/cordis.patch.yml (or merge the insert list).
+# Replace the name path with this checkout. Rows already present in the profile
+# should not be duplicated — insert only tool-rustiq in that case.
+- insert:
+    - id: dsh-terminal
+      name: '@deepseek-ai/dsh-terminal'
+    - id: dsh-terminal-bash
+      name: '@deepseek-ai/dsh-terminal-bash'
+    - id: tool-rustiq
+      name: '/ABSOLUTE/PATH/TO/rustiq/dsh-tool-rustiq'
+      config:
+        binaryPath: rustiq
