@@ -19,9 +19,19 @@ function sessionId(args) {
 }
 
 function clip(text, maxBytes) {
+  if (!Number.isInteger(maxBytes) || maxBytes < 0) {
+    throw new Error('maxResultBytes must be a non-negative integer')
+  }
   const buf = Buffer.from(text, 'utf8')
   if (buf.length <= maxBytes) return text
-  return buf.subarray(0, maxBytes).toString('utf8')
+  for (let size = maxBytes; size >= 0; size -= 1) {
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(0, size))
+    } catch {
+      // keep shrinking until we hit a valid utf-8 boundary
+    }
+  }
+  return ''
 }
 
 function textBlocks(text, maxBytes) {
@@ -42,6 +52,9 @@ async function ptySend(ctx, owner, id, req, signal) {
 
 export function apply(ctx, config = {}) {
   const maxResultBytes = config.maxResultBytes ?? DEFAULT_MAX_RESULT_BYTES
+  if (!Number.isInteger(maxResultBytes) || maxResultBytes < 0) {
+    throw new Error('maxResultBytes must be a non-negative integer')
+  }
   const defaultBinary = config.binaryPath ?? 'rustiq'
 
   ctx.systemPrompt.section({ name: 'tool:rustiq', order: 107, text: GUIDANCE })

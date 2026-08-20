@@ -63,6 +63,11 @@ test('apply registers four tools and guidance', () => {
   ])
 })
 
+test('apply rejects negative maxResultBytes', () => {
+  const m = mockCtx()
+  assert.throws(() => apply(m.ctx, { maxResultBytes: -1 }), /non-negative integer/)
+})
+
 test('rustiq_send and close require agent and sessionId', async () => {
   const m = mockCtx()
   apply(m.ctx)
@@ -137,4 +142,12 @@ test('rustiq_open launches rustiq --inline in session cwd', async () => {
   assert.equal(out.workdir, '/repo')
   assert.equal(m.sends[0].req.text, `${bin} --inline`)
   assert.equal(m.sends[0].req.submit, true)
+})
+
+test('render clips at full utf-8 code point boundaries', () => {
+  const m = mockCtx()
+  apply(m.ctx, { maxResultBytes: 2 })
+  const send = m.tools.find((t) => t.name === 'rustiq_send')
+  const rendered = send.output.render({}, { viewport: 'a😀b' })
+  assert.equal(rendered[0].text, 'a')
 })
