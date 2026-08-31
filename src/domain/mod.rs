@@ -69,6 +69,9 @@ impl Baseline {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Comment {
     pub id: Uuid,
+    /// Review session that created/owns this comment (one rustiq process).
+    #[serde(default)]
+    pub session_id: Uuid,
     pub file: PathBuf,
     /// 1-based line number in the new file at time of creation
     pub line_no: usize,
@@ -82,10 +85,11 @@ pub struct Comment {
 }
 
 impl Comment {
-    pub fn new(file: PathBuf, line_no: usize, anchor_hash: String, text: String) -> Self {
+    pub fn new(session_id: Uuid, file: PathBuf, line_no: usize, anchor_hash: String, text: String) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
+            session_id,
             file,
             line_no,
             anchor_hash,

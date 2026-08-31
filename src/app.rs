@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use uuid::Uuid;
 
-use crate::adapters::comments::JsonCommentStore;
+use crate::adapters::comments::SessionCommentStore;
 use crate::domain::{Baseline, Comment, DiffFile};
 use crate::ports::{CommentStore, GitRepository};
 use crate::theme::Theme;
@@ -47,9 +47,9 @@ pub struct App {
     pub diff_scroll: u16,
     // diff line cursor (for comments)
     pub diff_line_cursor: usize,
-    // comments
+    // comments (all sessions; new ones tagged with the current process session)
     pub comments: Vec<Comment>,
-    pub comment_store: JsonCommentStore,
+    pub comment_store: SessionCommentStore,
     pub rustiq_dir: PathBuf,
     // comment input overlay
     pub comment_input_text: String,
@@ -67,10 +67,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(repo: Box<dyn GitRepository>, comment_store: JsonCommentStore, rustiq_dir: PathBuf) -> anyhow::Result<Self> {
+    pub fn new(repo: Box<dyn GitRepository>, comment_store: SessionCommentStore, rustiq_dir: PathBuf) -> anyhow::Result<Self> {
         let baselines = repo.log()?;
-        let comments = comment_store.load()?;
-        // stale detection deferred to after first diff load (need file content)
+        // Load every past session so stale/resolved detection covers the full history.
+        // New comments in this process are tagged with the current session id.
+        let comments = comment_store.load_all()?;
         Ok(Self {
             repo,
             screen: Screen::BaselinePicker,
@@ -140,9 +141,11 @@ impl App {
             self.status_message = Some("No comments to view.".into());
             return;
         }
-        self.comment_export_text = self.format_comments_for_export();
+        let text = self.format_comments_for_export(&self.comments);
+        self.comment_export_text = text;
         self.comment_export_line_count = self.comment_export_text.lines().count() as u16;
         self.comment_export_scroll = 0;
+        // Mirror active session comments (same content as comments.txt).
         let export_path = self.rustiq_dir.join("export.txt");
         match std::fs::write(&export_path, &self.comment_export_text) {
             Ok(()) => {
@@ -188,7 +191,13 @@ impl App {
                 c.stale = false;
             }
         } else {
-            next.push(Comment::new(file, line_no, anchor_hash, text));
+            next.push(Comment::new(
+                self.comment_store.session_id(),
+                file,
+                line_no,
+                anchor_hash,
+                text,
+            ));
         }
         if self.persist_comments(&next, "Comment saved.") {
             self.comments = next;
@@ -200,7 +209,14 @@ impl App {
     pub fn delete_comment_on_current_line(&mut self) {
         let Some(file) = self.current_file_path() else { return; };
         let Some(line_no) = self.current_line_no() else { return; };
-        let next: Vec<_> = self.comments.iter().filter(|c| !(c.file == file && c.line_no == line_no)).cloned().collect();
+        let next: Vec<_> = self.comments
+            .iter()
+            .filter(|c| !(c.file == file && c.line_no == line_no))
+            .cloned()
+            .collect();
+        if next.len() == self.comments.len() {
+            return;
+        }
         if self.persist_comments(&next, "Comment deleted.") {
             self.comments = next;
         }
@@ -218,7 +234,7 @@ impl App {
 
     fn compute_anchor_hash(&self, file: &Path, line_no: usize) -> String {
         let lines = self.repo.read_lines(file).unwrap_or_default();
-        JsonCommentStore::anchor_hash(&lines, line_no)
+        SessionCommentStore::anchor_hash(&lines, line_no)
     }
 
     fn check_stale_comments(&mut self) {
@@ -227,7 +243,7 @@ impl App {
             let line_no = self.comments[i].line_no;
             let anchor_hash = self.comments[i].anchor_hash.clone();
             let lines = self.repo.read_lines(&file).unwrap_or_default();
-            let current_hash = JsonCommentStore::anchor_hash(&lines, line_no);
+            let current_hash = SessionCommentStore::anchor_hash(&lines, line_no);
             self.comments[i].stale = current_hash != anchor_hash;
         }
     }
@@ -239,7 +255,7 @@ impl App {
             self.status_message = Some("No comments to export.".into());
             return;
         }
-        let text = self.format_comments_for_export();
+        let text = self.format_comments_for_export(&self.comments);
         match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text.clone())) {
             Ok(_) => self.status_message = Some(format!("Copied {} comment(s) to clipboard.", self.comments.len())),
             Err(_) => match write_private_export(&text) {
@@ -249,9 +265,9 @@ impl App {
         }
     }
 
-    pub fn format_comments_for_export(&self) -> String {
+    pub fn format_comments_for_export(&self, comments: &[Comment]) -> String {
         let mut out = String::new();
-        for c in &self.comments {
+        for c in comments {
             out.push_str(&format!("=== {} : line {} ===\n", c.file.display(), c.line_no));
             if c.stale { out.push_str("[STALE]\n"); }
             // context lines from working tree
@@ -317,7 +333,14 @@ impl App {
     }
 
     fn persist_comments(&mut self, comments: &[Comment], ok: &str) -> bool {
-        match self.comment_store.save(comments) {
+        let active_id = self.comment_store.session_id();
+        let active: Vec<Comment> = comments
+            .iter()
+            .filter(|c| c.session_id == active_id)
+            .cloned()
+            .collect();
+        let active_export = self.format_comments_for_export(&active);
+        match self.comment_store.save_all(comments, &active_export) {
             Ok(()) => {
                 self.status_message = Some(ok.into());
                 true

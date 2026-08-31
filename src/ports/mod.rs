@@ -23,7 +23,14 @@ pub trait Highlighter {
     fn highlight(&self, path: &Path, source: &str, dark_theme: bool) -> Vec<StyledLine>;
 }
 
+/// Persists review comments across rustiq process sessions.
+///
+/// Each process is a new session. Session archives are JSON files tagged by
+/// session id. `.rustiq/comments.txt` always mirrors the **active** session's
+/// export text. The TUI loads comments from every session archive.
 pub trait CommentStore {
-    fn load(&self) -> Result<Vec<Comment>>;
-    fn save(&self, comments: &[Comment]) -> Result<()>;
+    /// Load comments from all session archives (and legacy `comments.json` if present).
+    fn load_all(&self) -> Result<Vec<Comment>>;
+    /// Persist every session's comments to its archive; write `active_export` to comments.txt.
+    fn save_all(&self, comments: &[Comment], active_export: &str) -> Result<()>;
 }

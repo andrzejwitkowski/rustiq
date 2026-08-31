@@ -50,7 +50,7 @@ Plugin: [`dsh-tool-rustiq/`](dsh-tool-rustiq/). Merge [`examples/cordis.patch.ym
 | `e` | Edit comment on current line |
 | `d` | Delete comment on current line |
 | `C` | Copy all comments to clipboard |
-| `V` | Open comment export (writes `.rustiq/export.txt`) |
+| `V` | Open comment export (writes `.rustiq/export.txt`; live comments also in `.rustiq/comments.txt`) |
 | `q` / `Esc` | Quit |
 
 ### Comment input
@@ -72,12 +72,20 @@ Press `T` to cycle themes at runtime.
 
 ## Comments
 
-Comments are stored in `.rustiq/comments.json` inside the repository (add to `.gitignore`).
+Each rustiq process is a **new review session**, but the TUI loads **all** comments from every past session and runs the usual stale/context checks on them.
 
-- Comments survive restart.
-- If the ±10 lines of context around a commented line change (code edited or fixed), the comment is marked **stale** (`[S]` in gutter).
-- Comment text is shown inline directly under the commented code line (with multi-line wrapping).
-- Press `C` to copy all comments to clipboard in diff format with ±10 lines of context.
+| File | Role |
+|------|------|
+| `.rustiq/comments-<session-id>.json` | Structured archive for that session (kept; TUI loads all of these) |
+| `.rustiq/comments.txt` | Export text for the **active** session only (cleared on restart, rewritten on each save) |
+
+Add `.rustiq/` to `.gitignore` (already ignored in this repo).
+
+- New comments are tagged with the current session id.
+- Past-session comments stay visible in the TUI; if ±10 lines of context change, they are marked **stale** (`[S]` in gutter). When context matches again, they clear stale (resolved).
+- Prior session JSON archives remain on disk; emptied past sessions are removed on save.
+- Legacy `.rustiq/comments.json` is loaded if present.
+- Press `C` to copy **all** comments to clipboard; press `V` writes `.rustiq/export.txt` (all comments). Agents can also read the active session at `.rustiq/comments.txt`.
 
 ## Architecture
 
