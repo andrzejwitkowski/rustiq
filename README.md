@@ -50,7 +50,7 @@ Plugin: [`dsh-tool-rustiq/`](dsh-tool-rustiq/). Merge [`examples/cordis.patch.ym
 | `e` | Edit comment on current line |
 | `d` | Delete comment on current line |
 | `C` | Copy all comments to clipboard |
-| `V` | Open comment export (writes `.rustiq/export.txt`) |
+| `V` | Open comment export (writes `.rustiq/export.txt`; live comments also in `.rustiq/comments.txt`) |
 | `q` / `Esc` | Quit |
 
 ### Comment input
@@ -72,12 +72,21 @@ Press `T` to cycle themes at runtime.
 
 ## Comments
 
-Comments are stored in `.rustiq/comments.json` inside the repository (add to `.gitignore`).
+Each rustiq process is a **new review session**. Comments live in memory for that session and are dual-written on every save:
 
-- Comments survive restart.
+| File | Role |
+|------|------|
+| `.rustiq/comments-<session-id>.txt` | Archive for this session (kept after quit) |
+| `.rustiq/comments.txt` | Always the **active** session (overwritten on restart / each save) |
+
+Add `.rustiq/` to `.gitignore` (already ignored in this repo).
+
+- Restarting rustiq starts a fresh session (UI does not restore prior comments).
+- Prior sessions remain as `comments-<uuid>.txt` archives.
 - If the ±10 lines of context around a commented line change (code edited or fixed), the comment is marked **stale** (`[S]` in gutter).
 - Comment text is shown inline directly under the commented code line (with multi-line wrapping).
 - Press `C` to copy all comments to clipboard in diff format with ±10 lines of context.
+- Press `V` also writes `.rustiq/export.txt` (same export format as `comments.txt`).
 
 ## Architecture
 

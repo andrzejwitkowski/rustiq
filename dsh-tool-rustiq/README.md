@@ -1,6 +1,6 @@
 # @andrzejwitkowski/dsh-tool-rustiq
 
-Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): `rustiq_*` tools drive the [rustiq](https://github.com/andrzejwitkowski/rustiq) TUI over `ctx.terminals` (terminal card in chat, not a sidebar). After `V`, comments are in `.rustiq/export.txt`.
+Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): `rustiq_*` tools drive the [rustiq](https://github.com/andrzejwitkowski/rustiq) TUI over `ctx.terminals` (terminal card in chat, not a sidebar). Active-session comments are always at `.rustiq/comments.txt` (each rustiq restart is a new session). After `V`, the same export is also at `.rustiq/export.txt`.
 
 ## Install
 

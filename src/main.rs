@@ -17,7 +17,7 @@ use std::fs::File;
 use std::io::{self, IsTerminal, Write};
 use std::time::Duration;
 
-use adapters::{comments::JsonCommentStore, git::Git2Repository, highlight::SyntectHighlighter};
+use adapters::{comments::SessionCommentStore, git::Git2Repository, highlight::SyntectHighlighter};
 use app::{App, Screen};
 use ports::Highlighter;
 
@@ -135,7 +135,7 @@ impl Drop for TerminalGuard {
 fn main() -> Result<()> {
     let cwd = std::env::current_dir()?;
     let git_repo = Git2Repository::open(&cwd)?;
-    let comment_store = JsonCommentStore::new(&cwd)?;
+    let comment_store = SessionCommentStore::new(&cwd)?;
     let highlighter = SyntectHighlighter::new();
     let mut app = App::new(Box::new(git_repo), comment_store, cwd.join(".rustiq"))?;
 
