@@ -72,21 +72,20 @@ Press `T` to cycle themes at runtime.
 
 ## Comments
 
-Each rustiq process is a **new review session**. Comments live in memory for that session and are dual-written on every save:
+Each rustiq process is a **new review session**, but the TUI loads **all** comments from every past session and runs the usual stale/context checks on them.
 
 | File | Role |
 |------|------|
-| `.rustiq/comments-<session-id>.txt` | Archive for this session (kept after quit) |
-| `.rustiq/comments.txt` | Always the **active** session (overwritten on restart / each save) |
+| `.rustiq/comments-<session-id>.json` | Structured archive for that session (kept; TUI loads all of these) |
+| `.rustiq/comments.txt` | Export text for the **active** session only (cleared on restart, rewritten on each save) |
 
 Add `.rustiq/` to `.gitignore` (already ignored in this repo).
 
-- Restarting rustiq starts a fresh session (UI does not restore prior comments).
-- Prior sessions remain as `comments-<uuid>.txt` archives.
-- If the ±10 lines of context around a commented line change (code edited or fixed), the comment is marked **stale** (`[S]` in gutter).
-- Comment text is shown inline directly under the commented code line (with multi-line wrapping).
-- Press `C` to copy all comments to clipboard in diff format with ±10 lines of context.
-- Press `V` also writes `.rustiq/export.txt` (same export format as `comments.txt`).
+- New comments are tagged with the current session id.
+- Past-session comments stay visible in the TUI; if ±10 lines of context change, they are marked **stale** (`[S]` in gutter). When context matches again, they clear stale (resolved).
+- Prior session JSON archives remain on disk; emptied past sessions are removed on save.
+- Legacy `.rustiq/comments.json` is loaded if present.
+- Press `C` to copy **all** comments to clipboard; press `V` writes `.rustiq/export.txt` (all comments). Agents can also read the active session at `.rustiq/comments.txt`.
 
 ## Architecture
 

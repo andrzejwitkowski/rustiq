@@ -4,7 +4,7 @@ export const name = 'tool-rustiq'
 export const inject = ['terminals', 'tools', 'systemPrompt']
 
 export const DEFAULT_MAX_RESULT_BYTES = 256 * 1024
-export const GUIDANCE = `For git diff review and inline comments, use rustiq_* (not bash rustiq). rustiq_open starts the TUI; rustiq_send keys (j/k navigate, Enter select baseline, c comment, V export, q quit); rustiq_read the screen; rustiq_close when done. Track sessionId. Active-session comments are always at .rustiq/comments.txt (each rustiq restart is a new session; archives are .rustiq/comments-<uuid>.txt). After V, the same export is also at .rustiq/export.txt.`
+export const GUIDANCE = `For git diff review and inline comments, use rustiq_* (not bash rustiq). rustiq_open starts the TUI; rustiq_send keys (j/k navigate, Enter select baseline, c comment, V export, q quit); rustiq_read the screen; rustiq_close when done. Track sessionId. The TUI shows comments from all past sessions (stale when context drifts). Active-session export is always at .rustiq/comments.txt; archives are .rustiq/comments-<uuid>.json. After V, all comments are also at .rustiq/export.txt.`
 
 function requireAgent(agent) {
   if (agent === undefined) throw new Error('rustiq tools require an initiating agent')

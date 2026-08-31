@@ -1,7 +1,7 @@
 use std::path::Path;
 use anyhow::Result;
 use ratatui::style::Style;
-use crate::domain::{Baseline, DiffFile};
+use crate::domain::{Baseline, Comment, DiffFile};
 
 pub trait GitRepository {
     fn log(&self) -> Result<Vec<Baseline>>;
@@ -23,10 +23,14 @@ pub trait Highlighter {
     fn highlight(&self, path: &Path, source: &str, dark_theme: bool) -> Vec<StyledLine>;
 }
 
-/// Persists the active review session's comments.
+/// Persists review comments across rustiq process sessions.
 ///
-/// Each rustiq process is a new session. Saves dual-write to a session-tagged
-/// archive file and to `.rustiq/comments.txt` (always the active session).
+/// Each process is a new session. Session archives are JSON files tagged by
+/// session id. `.rustiq/comments.txt` always mirrors the **active** session's
+/// export text. The TUI loads comments from every session archive.
 pub trait CommentStore {
-    fn save(&self, export_text: &str) -> Result<()>;
+    /// Load comments from all session archives (and legacy `comments.json` if present).
+    fn load_all(&self) -> Result<Vec<Comment>>;
+    /// Persist every session's comments to its archive; write `active_export` to comments.txt.
+    fn save_all(&self, comments: &[Comment], active_export: &str) -> Result<()>;
 }

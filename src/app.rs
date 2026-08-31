@@ -47,7 +47,7 @@ pub struct App {
     pub diff_scroll: u16,
     // diff line cursor (for comments)
     pub diff_line_cursor: usize,
-    // comments (in-memory for this process session only)
+    // comments (all sessions; new ones tagged with the current process session)
     pub comments: Vec<Comment>,
     pub comment_store: SessionCommentStore,
     pub rustiq_dir: PathBuf,
@@ -69,7 +69,9 @@ pub struct App {
 impl App {
     pub fn new(repo: Box<dyn GitRepository>, comment_store: SessionCommentStore, rustiq_dir: PathBuf) -> anyhow::Result<Self> {
         let baselines = repo.log()?;
-        // Each process start is a new session — do not restore prior session comments.
+        // Load every past session so stale/resolved detection covers the full history.
+        // New comments in this process are tagged with the current session id.
+        let comments = comment_store.load_all()?;
         Ok(Self {
             repo,
             screen: Screen::BaselinePicker,
@@ -81,7 +83,7 @@ impl App {
             file_cursor: 0,
             diff_scroll: 0,
             diff_line_cursor: 0,
-            comments: vec![],
+            comments,
             comment_store,
             rustiq_dir,
             comment_input_text: String::new(),
@@ -189,7 +191,13 @@ impl App {
                 c.stale = false;
             }
         } else {
-            next.push(Comment::new(file, line_no, anchor_hash, text));
+            next.push(Comment::new(
+                self.comment_store.session_id(),
+                file,
+                line_no,
+                anchor_hash,
+                text,
+            ));
         }
         if self.persist_comments(&next, "Comment saved.") {
             self.comments = next;
@@ -325,8 +333,14 @@ impl App {
     }
 
     fn persist_comments(&mut self, comments: &[Comment], ok: &str) -> bool {
-        let export = self.format_comments_for_export(comments);
-        match self.comment_store.save(&export) {
+        let active_id = self.comment_store.session_id();
+        let active: Vec<Comment> = comments
+            .iter()
+            .filter(|c| c.session_id == active_id)
+            .cloned()
+            .collect();
+        let active_export = self.format_comments_for_export(&active);
+        match self.comment_store.save_all(comments, &active_export) {
             Ok(()) => {
                 self.status_message = Some(ok.into());
                 true
