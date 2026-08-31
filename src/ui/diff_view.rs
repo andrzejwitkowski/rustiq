@@ -58,7 +58,7 @@ fn render_stacked(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: 
     let source = all_lines.iter().map(|l| l.content.as_str()).collect::<Vec<_>>().join("\n");
     let highlighted = hl.highlight(&file.path, &source, t.is_dark());
     let content_width = area.width.saturating_sub(GUTTER_WIDTH).max(12) as usize;
-    let lines = render_lines_with_comments(
+    let (lines, cursor_y) = render_lines_with_comments(
         &all_lines,
         &highlighted,
         RenderCtx {
@@ -71,7 +71,7 @@ fn render_stacked(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: 
         |_line| true,
     );
 
-    app.diff_viewport_height = area.height.max(1);
+    sync_diff_scroll(app, lines.len(), cursor_y, area.height.max(1));
 
     let para = Paragraph::new(lines)
         .style(t.base_style())
@@ -89,7 +89,6 @@ fn render_split(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Th
     let source = all_lines.iter().map(|l| l.content.as_str()).collect::<Vec<_>>().join("\n");
     let highlighted = hl.highlight(&file.path, &source, t.is_dark());
     let pane_content_width = chunks[1].width.saturating_sub(GUTTER_WIDTH).max(12) as usize;
-    app.diff_viewport_height = chunks[1].height.max(1);
 
     let ctx = RenderCtx {
         app,
@@ -98,7 +97,7 @@ fn render_split(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Th
         cursor: app.diff_line_cursor,
         content_width: pane_content_width,
     };
-    let (left_lines, right_lines) = render_paired_split(&all_lines, &highlighted, ctx);
+    let (left_lines, right_lines, cursor_y) = render_paired_split(&all_lines, &highlighted, ctx);
 
     let left_block = Block::default()
         .borders(Borders::RIGHT)
@@ -109,6 +108,10 @@ fn render_split(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Th
         .style(Style::default().bg(t.bg()))
         .title(Span::styled(" new ", Style::default().fg(t.added_fg())));
 
+    // Viewport is the paragraph inner area (block borders/titles reduce usable height).
+    let viewport = right_block.inner(chunks[1]).height.max(1);
+    sync_diff_scroll(app, right_lines.len(), cursor_y, viewport);
+
     f.render_widget(
         Paragraph::new(left_lines).style(t.base_style()).scroll((app.diff_scroll, 0)).block(left_block),
         chunks[0],
@@ -117,6 +120,26 @@ fn render_split(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Th
         Paragraph::new(right_lines).style(t.base_style()).scroll((app.diff_scroll, 0)).block(right_block),
         chunks[1],
     );
+}
+
+/// Keep the cursor row visible when following, and always clamp so the last lines are reachable.
+fn sync_diff_scroll(app: &mut App, rendered_len: usize, cursor_y: u16, viewport: u16) {
+    let visible = viewport.max(1) as usize;
+    app.diff_viewport_height = viewport.max(1);
+
+    if app.diff_follow_cursor {
+        let cy = cursor_y as usize;
+        if cy < app.diff_scroll as usize {
+            app.diff_scroll = cursor_y;
+        } else if cy >= app.diff_scroll as usize + visible {
+            app.diff_scroll = (cy + 1 - visible) as u16;
+        }
+    }
+
+    let max_scroll = rendered_len.saturating_sub(visible) as u16;
+    if app.diff_scroll > max_scroll {
+        app.diff_scroll = max_scroll;
+    }
 }
 
 fn diff_line_to_ratatui<'a>(
@@ -159,10 +182,10 @@ fn diff_line_to_ratatui<'a>(
         Span::styled(" ".to_string(), prefix_style),
     ];
 
-    if hl_spans.is_empty() || matches!(dl.kind, DiffLineKind::Added | DiffLineKind::Removed) {
-        // override with uniform color for add/remove lines (keep readability)
+    if hl_spans.is_empty() {
         spans.push(Span::styled(dl.content.clone(), Style::default().fg(line_fg).bg(bg)));
     } else {
+        // Keep syntax colors on context/add/remove; only the line background carries diff tint.
         for s in hl_spans {
             spans.push(Span::styled(s.text, s.style.bg(bg)));
         }
@@ -184,14 +207,18 @@ fn render_lines_with_comments<'a, F>(
     highlighted: &[StyledLine],
     ctx: RenderCtx<'_>,
     include_line: F,
-) -> Vec<Line<'a>>
+) -> (Vec<Line<'a>>, u16)
 where
     F: Fn(&DiffLine) -> bool,
 {
     let mut lines = Vec::new();
+    let mut cursor_y = 0u16;
     for (i, dl) in all_lines.iter().enumerate() {
         if !include_line(dl) {
             continue;
+        }
+        if i == ctx.cursor {
+            cursor_y = lines.len() as u16;
         }
         let hl_spans = highlighted.get(i).cloned().unwrap_or_default();
         let comment = dl
@@ -214,18 +241,22 @@ where
             ));
         }
     }
-    lines
+    (lines, cursor_y)
 }
 
 fn render_paired_split<'a>(
     all_lines: &[&DiffLine],
     highlighted: &[StyledLine],
     ctx: RenderCtx<'_>,
-) -> (Vec<Line<'a>>, Vec<Line<'a>>) {
+) -> (Vec<Line<'a>>, Vec<Line<'a>>, u16) {
     let blank = Line::from(Span::styled(" ", Style::default().bg(ctx.theme.bg())));
     let mut left = Vec::new();
     let mut right = Vec::new();
+    let mut cursor_y = 0u16;
     for (i, dl) in all_lines.iter().enumerate() {
+        if i == ctx.cursor {
+            cursor_y = right.len() as u16;
+        }
         let hl_spans = highlighted.get(i).cloned().unwrap_or_default();
         let comment = dl
             .new_lineno
@@ -266,7 +297,7 @@ fn render_paired_split<'a>(
             }
         }
     }
-    (left, right)
+    (left, right, cursor_y)
 }
 
 fn render_inline_comment_rows<'a>(
@@ -331,3 +362,92 @@ fn wrap_comment_text(text: &str, width: usize) -> Vec<String> {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::DiffLineKind;
+    use crate::ports::StyledSpan;
+    use ratatui::style::Color;
+
+    #[test]
+    fn added_lines_keep_syntax_spans() {
+        let dl = DiffLine {
+            kind: DiffLineKind::Added,
+            old_lineno: None,
+            new_lineno: Some(1),
+            content: "let x = 1;".into(),
+        };
+        let hl = vec![
+            StyledSpan {
+                text: "let".into(),
+                style: Style::default().fg(Color::Rgb(1, 2, 3)),
+            },
+            StyledSpan {
+                text: " x = 1;".into(),
+                style: Style::default().fg(Color::Rgb(4, 5, 6)),
+            },
+        ];
+        let line = diff_line_to_ratatui(&dl, hl, Theme::DefaultDark, 0, 0, false);
+        // gutter + spacer + 2 syntax spans
+        assert!(line.spans.len() >= 4);
+        assert_eq!(line.spans[2].content.as_ref(), "let");
+        assert_eq!(line.spans[2].style.fg, Some(Color::Rgb(1, 2, 3)));
+    }
+
+    #[test]
+    fn scroll_clamps_so_last_rows_are_reachable() {
+        // Simulate free PageDown past the end: 100 rendered rows, 20 visible.
+        let mut scroll = 999u16;
+        let follow = false;
+        let cursor_y = 0u16;
+        let rendered_len = 100usize;
+        let viewport = 20u16;
+        let visible = viewport.max(1) as usize;
+        if follow {
+            let cy = cursor_y as usize;
+            if cy < scroll as usize {
+                scroll = cursor_y;
+            } else if cy >= scroll as usize + visible {
+                scroll = (cy + 1 - visible) as u16;
+            }
+        }
+        let max_scroll = rendered_len.saturating_sub(visible) as u16;
+        if scroll > max_scroll {
+            scroll = max_scroll;
+        }
+        assert_eq!(scroll, 80);
+    }
+
+    #[test]
+    fn follow_cursor_uses_rendered_y_not_diff_index() {
+        // Cursor on rendered row 50 with comments above; viewport 10.
+        let mut scroll = 0u16;
+        let follow = true;
+        let cursor_y = 50u16;
+        let rendered_len = 60usize;
+        let viewport = 10u16;
+        let visible = viewport.max(1) as usize;
+        if follow {
+            let cy = cursor_y as usize;
+            if cy < scroll as usize {
+                scroll = cursor_y;
+            } else if cy >= scroll as usize + visible {
+                scroll = (cy + 1 - visible) as u16;
+            }
+        }
+        let max_scroll = rendered_len.saturating_sub(visible) as u16;
+        if scroll > max_scroll {
+            scroll = max_scroll;
+        }
+        assert_eq!(scroll, 41); // 50 visible at bottom of 10-row viewport
+    }
+
+    #[test]
+    fn split_title_reduces_inner_height() {
+        let block = Block::default().title(" new ");
+        let area = Rect::new(0, 0, 40, 20);
+        assert_eq!(block.inner(area).height, 19);
+    }
+}
+

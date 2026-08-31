@@ -17,7 +17,8 @@ pub struct SyntectHighlighter {
 impl SyntectHighlighter {
     pub fn new() -> Self {
         Self {
-            ss: SyntaxSet::load_defaults_newlines(),
+            // two-face ships syntect defaults plus extras (Kotlin, TS, …)
+            ss: two_face::syntax::extra_newlines(),
             ts: ThemeSet::load_defaults(),
             dark_theme: "base16-ocean.dark".into(),
             light_theme: "InspiredGitHub".into(),
@@ -30,12 +31,7 @@ impl SyntectHighlighter {
             Some(t) => t,
             None => return plain_lines(source),
         };
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let syntax = self
-            .ss
-            .find_syntax_by_extension(ext)
-            .unwrap_or_else(|| self.ss.find_syntax_plain_text());
-
+        let syntax = resolve_syntax(&self.ss, path);
         let mut h = HighlightLines::new(syntax, theme);
         let mut result = Vec::new();
         for line in LinesWithEndings::from(source) {
@@ -69,6 +65,24 @@ impl Highlighter for SyntectHighlighter {
     }
 }
 
+fn resolve_syntax<'a>(ss: &'a SyntaxSet, path: &Path) -> &'a syntect::parsing::SyntaxReference {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !ext.is_empty() {
+        if let Some(s) = ss.find_syntax_by_extension(&ext) {
+            return s;
+        }
+    }
+    // First-line / path heuristics (e.g. shebang, Makefile)
+    if let Ok(Some(s)) = ss.find_syntax_for_file(path) {
+        return s;
+    }
+    ss.find_syntax_plain_text()
+}
+
 fn syntect_color(c: syntect::highlighting::Color) -> Color {
     Color::Rgb(c.r, c.g, c.b)
 }
@@ -78,4 +92,48 @@ fn plain_lines(source: &str) -> Vec<StyledLine> {
         .lines()
         .map(|l| vec![StyledSpan { text: l.to_string(), style: Style::default() }])
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn non_plain_spans(path: &str, source: &str) -> bool {
+        let hl = SyntectHighlighter::new();
+        let lines = hl.highlight_with_theme(Path::new(path), source, true);
+        lines.iter().flatten().any(|s| {
+            matches!(s.style.fg, Some(Color::Rgb(_, _, _)))
+        })
+    }
+
+    #[test]
+    fn highlights_requested_languages() {
+        let cases: &[(&str, &str)] = &[
+            ("src/main.rs", "fn main() {\n    let x = 1;\n}\n"),
+            ("app.js", "const x = { a: 1 };\nfunction f() { return x; }\n"),
+            ("data.json", "{\n  \"name\": \"rustiq\",\n  \"ok\": true\n}\n"),
+            ("index.html", "<html><body><div class=\"x\">hi</div></body></html>\n"),
+            ("Main.kt", "fun main() {\n    val x = 1\n    println(x)\n}\n"),
+        ];
+        for (path, source) in cases {
+            assert!(
+                non_plain_spans(path, source),
+                "expected syntax colors for {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolves_kotlin_and_json_extensions() {
+        let ss = two_face::syntax::extra_newlines();
+        assert_eq!(
+            resolve_syntax(&ss, &PathBuf::from("A.KT")).name,
+            "Kotlin"
+        );
+        assert_eq!(
+            resolve_syntax(&ss, Path::new("cfg.JSON")).name,
+            "JSON"
+        );
+    }
 }

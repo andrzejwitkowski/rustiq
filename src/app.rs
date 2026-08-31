@@ -61,6 +61,9 @@ pub struct App {
     pub comment_export_write_error: Option<String>,
     pub status_message: Option<String>,
     pub diff_viewport_height: u16,
+    /// When true, render keeps the diff cursor row in view (j/k navigation).
+    /// Cleared by PageUp/PageDown so free scrolling can reach the file bottom.
+    pub diff_follow_cursor: bool,
 }
 
 impl App {
@@ -91,6 +94,7 @@ impl App {
             comment_export_write_error: None,
             status_message: None,
             diff_viewport_height: 1,
+            diff_follow_cursor: true,
         })
     }
 
@@ -103,6 +107,7 @@ impl App {
         self.file_cursor = 0;
         self.diff_scroll = 0;
         self.diff_line_cursor = 0;
+        self.diff_follow_cursor = true;
         self.screen = Screen::Main;
         self.check_stale_comments();
         Ok(())
@@ -273,6 +278,7 @@ impl App {
             self.file_cursor -= 1;
             self.diff_scroll = 0;
             self.diff_line_cursor = 0;
+            self.diff_follow_cursor = true;
         }
     }
 
@@ -281,15 +287,14 @@ impl App {
             self.file_cursor += 1;
             self.diff_scroll = 0;
             self.diff_line_cursor = 0;
+            self.diff_follow_cursor = true;
         }
     }
 
     pub fn diff_line_up(&mut self) {
         if self.diff_line_cursor > 0 {
             self.diff_line_cursor -= 1;
-            if self.diff_line_cursor < self.diff_scroll as usize {
-                self.diff_scroll = self.diff_line_cursor as u16;
-            }
+            self.diff_follow_cursor = true;
         }
     }
 
@@ -297,11 +302,18 @@ impl App {
         let total = self.all_diff_lines().len();
         if self.diff_line_cursor + 1 < total {
             self.diff_line_cursor += 1;
-            let visible = self.diff_viewport_height.max(1) as usize;
-            if self.diff_line_cursor >= self.diff_scroll as usize + visible {
-                self.diff_scroll = (self.diff_line_cursor + 1 - visible) as u16;
-            }
+            self.diff_follow_cursor = true;
         }
+    }
+
+    pub fn diff_page_up(&mut self) {
+        self.diff_follow_cursor = false;
+        self.diff_scroll = self.diff_scroll.saturating_sub(10);
+    }
+
+    pub fn diff_page_down(&mut self) {
+        self.diff_follow_cursor = false;
+        self.diff_scroll = self.diff_scroll.saturating_add(10);
     }
 
     fn persist_comments(&mut self, comments: &[Comment], ok: &str) -> bool {
