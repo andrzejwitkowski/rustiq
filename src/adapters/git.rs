@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use git2::{Delta, DiffOptions, Repository, Sort};
 
+use crate::adapters::diff_expand::{expand_hunks_to_scope, git_context_lines};
 use crate::domain::{Baseline, DiffFile, DiffLine, DiffLineKind, FileStatus, Hunk};
 use crate::ports::GitRepository;
 
@@ -54,7 +55,8 @@ impl GitRepository for Git2Repository {
 impl Git2Repository {
     fn diff_working_tree(&self) -> Result<Vec<DiffFile>> {
         let mut opts = DiffOptions::new();
-        opts.include_untracked(true)
+        opts.context_lines(git_context_lines())
+            .include_untracked(true)
             .recurse_untracked_dirs(true)
             .show_untracked_content(true);
 
@@ -62,7 +64,7 @@ impl Git2Repository {
         let diff = self
             .repo
             .diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut opts))?;
-        parse_git2_diff(&diff)
+        self.postprocess_diff(parse_git2_diff(&diff)?)
     }
 
     fn diff_commit(&self, oid_str: &str) -> Result<Vec<DiffFile>> {
@@ -71,8 +73,18 @@ impl Git2Repository {
         let tree = commit.tree()?;
         let parent_tree = commit.parent(0).ok().and_then(|p| p.tree().ok());
 
-        let diff = self.repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
-        parse_git2_diff(&diff)
+        let mut opts = DiffOptions::new();
+        opts.context_lines(git_context_lines());
+        let diff = self.repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))?;
+        self.postprocess_diff(parse_git2_diff(&diff)?)
+    }
+
+    fn postprocess_diff(&self, mut files: Vec<DiffFile>) -> Result<Vec<DiffFile>> {
+        for f in &mut files {
+            let lines = self.read_lines(&f.path).ok();
+            expand_hunks_to_scope(f, lines.as_deref());
+        }
+        Ok(files)
     }
 }
 

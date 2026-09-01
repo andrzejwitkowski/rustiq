@@ -87,6 +87,10 @@ Add `.rustiq/` to `.gitignore` (already ignored in this repo).
 - Legacy `.rustiq/comments.json` is loaded if present.
 - Press `C` to copy **all** comments to clipboard; press `V` writes `.rustiq/export.txt` (all comments). Agents can also read the active session at `.rustiq/comments.txt`.
 
+## Diff view
+
+Hunks expand to the enclosing `{` `}` block (method, `impl`, `struct`, etc.) so you can review a whole scope. Gaps between hunks show `··· N lines omitted ···`. Scroll with `j`/`k` or `PageUp`/`PageDown`; the status bar shows `↑`/`↓ N more` when content is off-screen.
+
 ## Architecture
 
 Hexagonal (ports & adapters):

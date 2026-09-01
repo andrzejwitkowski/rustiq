@@ -61,6 +61,7 @@ pub struct App {
     pub comment_export_write_error: Option<String>,
     pub status_message: Option<String>,
     pub diff_viewport_height: u16,
+    pub diff_rendered_len: usize,
     /// When true, render keeps the diff cursor row in view (j/k navigation).
     /// Cleared by PageUp/PageDown so free scrolling can reach the file bottom.
     pub diff_follow_cursor: bool,
@@ -95,6 +96,7 @@ impl App {
             comment_export_write_error: None,
             status_message: None,
             diff_viewport_height: 1,
+            diff_rendered_len: 0,
             diff_follow_cursor: true,
         })
     }
