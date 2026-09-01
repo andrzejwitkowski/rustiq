@@ -14,6 +14,42 @@ use crate::theme::Theme;
 const GUTTER_WIDTH: u16 = 17;
 const GUTTER_SPACER: &str = "              ";
 
+enum DiffRow<'a> {
+    Line(&'a DiffLine, usize),
+    Separator(usize),
+}
+
+fn build_display_rows(file: &DiffFile) -> Vec<DiffRow<'_>> {
+    let mut rows = Vec::new();
+    let mut prev_new: Option<u32> = None;
+    let mut line_idx = 0usize;
+    for hunk in &file.hunks {
+        for line in &hunk.lines {
+            if let Some(prev) = prev_new {
+                if let Some(new) = line.new_lineno {
+                    if new > prev + 1 {
+                        rows.push(DiffRow::Separator((new - prev - 1) as usize));
+                    }
+                }
+            }
+            rows.push(DiffRow::Line(line, line_idx));
+            line_idx += 1;
+            if let Some(new) = line.new_lineno {
+                prev_new = Some(new);
+            }
+        }
+    }
+    rows
+}
+
+fn separator_line(omitted: usize, t: Theme) -> Line<'static> {
+    let msg = format!("··· {omitted} lines omitted ···");
+    Line::from(vec![
+        Span::styled(GUTTER_SPACER, Style::default().fg(t.border()).bg(t.bg())),
+        Span::styled(msg, Style::default().fg(t.stale_fg()).bg(t.bg()).add_modifier(Modifier::ITALIC)),
+    ])
+}
+
 pub fn render(f: &mut Frame, app: &mut App, area: Rect, hl: &dyn Highlighter) {
     let t = app.theme;
 
@@ -55,11 +91,12 @@ pub fn render(f: &mut Frame, app: &mut App, area: Rect, hl: &dyn Highlighter) {
 
 fn render_stacked(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Theme, hl: &dyn Highlighter) {
     let all_lines: Vec<&DiffLine> = file.hunks.iter().flat_map(|h| h.lines.iter()).collect();
+    let display_rows = build_display_rows(file);
     let source = all_lines.iter().map(|l| l.content.as_str()).collect::<Vec<_>>().join("\n");
     let highlighted = hl.highlight(&file.path, &source, t.is_dark());
     let content_width = area.width.saturating_sub(GUTTER_WIDTH).max(12) as usize;
-    let (lines, cursor_y) = render_lines_with_comments(
-        &all_lines,
+    let (lines, cursor_y) = render_stacked_rows(
+        &display_rows,
         &highlighted,
         RenderCtx {
             app,
@@ -68,7 +105,6 @@ fn render_stacked(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: 
             cursor: app.diff_line_cursor,
             content_width,
         },
-        |_line| true,
     );
 
     sync_diff_scroll(app, lines.len(), cursor_y, area.height.max(1));
@@ -86,6 +122,7 @@ fn render_split(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Th
         .split(area);
 
     let all_lines: Vec<&DiffLine> = file.hunks.iter().flat_map(|h| h.lines.iter()).collect();
+    let display_rows = build_display_rows(file);
     let source = all_lines.iter().map(|l| l.content.as_str()).collect::<Vec<_>>().join("\n");
     let highlighted = hl.highlight(&file.path, &source, t.is_dark());
     let pane_content_width = chunks[1].width.saturating_sub(GUTTER_WIDTH).max(12) as usize;
@@ -97,7 +134,7 @@ fn render_split(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Th
         cursor: app.diff_line_cursor,
         content_width: pane_content_width,
     };
-    let (left_lines, right_lines, cursor_y) = render_paired_split(&all_lines, &highlighted, ctx);
+    let (left_lines, right_lines, cursor_y) = render_split_rows(&display_rows, &highlighted, ctx);
 
     let left_block = Block::default()
         .borders(Borders::RIGHT)
@@ -126,6 +163,7 @@ fn render_split(f: &mut Frame, app: &mut App, file: &DiffFile, area: Rect, t: Th
 fn sync_diff_scroll(app: &mut App, rendered_len: usize, cursor_y: u16, viewport: u16) {
     let visible = viewport.max(1) as usize;
     app.diff_viewport_height = viewport.max(1);
+    app.diff_rendered_len = rendered_len;
 
     if app.diff_follow_cursor {
         let cy = cursor_y as usize;
@@ -202,50 +240,45 @@ struct RenderCtx<'a> {
     content_width: usize,
 }
 
-fn render_lines_with_comments<'a, F>(
-    all_lines: &[&DiffLine],
+fn render_stacked_rows<'a>(
+    display_rows: &[DiffRow<'_>],
     highlighted: &[StyledLine],
     ctx: RenderCtx<'_>,
-    include_line: F,
-) -> (Vec<Line<'a>>, u16)
-where
-    F: Fn(&DiffLine) -> bool,
-{
+) -> (Vec<Line<'a>>, u16) {
+    let blank = Line::from(Span::styled(" ", Style::default().bg(ctx.theme.bg())));
     let mut lines = Vec::new();
     let mut cursor_y = 0u16;
-    for (i, dl) in all_lines.iter().enumerate() {
-        if !include_line(dl) {
-            continue;
-        }
-        if i == ctx.cursor {
-            cursor_y = lines.len() as u16;
-        }
-        let hl_spans = highlighted.get(i).cloned().unwrap_or_default();
-        let comment = dl
-            .new_lineno
-            .and_then(|new_lineno| ctx.app.comment_for_line(&ctx.file.path, new_lineno as usize));
-        lines.push(diff_line_to_ratatui(
-            dl,
-            hl_spans,
-            ctx.theme,
-            i,
-            ctx.cursor,
-            comment.is_some(),
-        ));
-        if let Some(comment) = comment {
-            lines.extend(render_inline_comment_rows(
-                comment.text.as_str(),
-                comment.stale,
-                ctx.theme,
-                ctx.content_width,
-            ));
+    for row in display_rows {
+        match row {
+            DiffRow::Separator(n) => {
+                lines.push(separator_line(*n, ctx.theme));
+                lines.push(blank.clone());
+            }
+            DiffRow::Line(dl, idx) => {
+                if *idx == ctx.cursor {
+                    cursor_y = lines.len() as u16;
+                }
+                let hl_spans = highlighted.get(*idx).cloned().unwrap_or_default();
+                let comment = dl
+                    .new_lineno
+                    .and_then(|n| ctx.app.comment_for_line(&ctx.file.path, n as usize));
+                lines.push(diff_line_to_ratatui(dl, hl_spans, ctx.theme, *idx, ctx.cursor, comment.is_some()));
+                if let Some(comment) = comment {
+                    lines.extend(render_inline_comment_rows(
+                        comment.text.as_str(),
+                        comment.stale,
+                        ctx.theme,
+                        ctx.content_width,
+                    ));
+                }
+            }
         }
     }
     (lines, cursor_y)
 }
 
-fn render_paired_split<'a>(
-    all_lines: &[&DiffLine],
+fn render_split_rows<'a>(
+    display_rows: &[DiffRow<'_>],
     highlighted: &[StyledLine],
     ctx: RenderCtx<'_>,
 ) -> (Vec<Line<'a>>, Vec<Line<'a>>, u16) {
@@ -253,47 +286,58 @@ fn render_paired_split<'a>(
     let mut left = Vec::new();
     let mut right = Vec::new();
     let mut cursor_y = 0u16;
-    for (i, dl) in all_lines.iter().enumerate() {
-        if i == ctx.cursor {
-            cursor_y = right.len() as u16;
-        }
-        let hl_spans = highlighted.get(i).cloned().unwrap_or_default();
-        let comment = dl
-            .new_lineno
-            .and_then(|n| ctx.app.comment_for_line(&ctx.file.path, n as usize));
-        let code = diff_line_to_ratatui(
-            dl,
-            hl_spans,
-            ctx.theme,
-            i,
-            ctx.cursor,
-            comment.is_some() && !matches!(dl.kind, DiffLineKind::Removed),
-        );
-        match dl.kind {
-            DiffLineKind::Added => {
+    for row in display_rows {
+        match row {
+            DiffRow::Separator(n) => {
+                let sep = separator_line(*n, ctx.theme);
+                left.push(sep.clone());
+                right.push(sep);
                 left.push(blank.clone());
-                right.push(code);
-            }
-            DiffLineKind::Removed => {
-                left.push(code);
                 right.push(blank.clone());
             }
-            DiffLineKind::Context => {
-                left.push(code.clone());
-                right.push(code);
-            }
-        }
-        if let Some(comment) = comment {
-            if !matches!(dl.kind, DiffLineKind::Removed) {
-                let rows = render_inline_comment_rows(
-                    comment.text.as_str(),
-                    comment.stale,
+            DiffRow::Line(dl, idx) => {
+                if *idx == ctx.cursor {
+                    cursor_y = right.len() as u16;
+                }
+                let hl_spans = highlighted.get(*idx).cloned().unwrap_or_default();
+                let comment = dl
+                    .new_lineno
+                    .and_then(|n| ctx.app.comment_for_line(&ctx.file.path, n as usize));
+                let code = diff_line_to_ratatui(
+                    dl,
+                    hl_spans,
                     ctx.theme,
-                    ctx.content_width,
+                    *idx,
+                    ctx.cursor,
+                    comment.is_some() && !matches!(dl.kind, DiffLineKind::Removed),
                 );
-                let n = rows.len();
-                right.extend(rows);
-                left.extend((0..n).map(|_| blank.clone()));
+                match dl.kind {
+                    DiffLineKind::Added => {
+                        left.push(blank.clone());
+                        right.push(code);
+                    }
+                    DiffLineKind::Removed => {
+                        left.push(code);
+                        right.push(blank.clone());
+                    }
+                    DiffLineKind::Context => {
+                        left.push(code.clone());
+                        right.push(code);
+                    }
+                }
+                if let Some(comment) = comment {
+                    if !matches!(dl.kind, DiffLineKind::Removed) {
+                        let rows = render_inline_comment_rows(
+                            comment.text.as_str(),
+                            comment.stale,
+                            ctx.theme,
+                            ctx.content_width,
+                        );
+                        let n = rows.len();
+                        right.extend(rows);
+                        left.extend((0..n).map(|_| blank.clone()));
+                    }
+                }
             }
         }
     }

@@ -47,16 +47,36 @@ pub fn render(f: &mut Frame, app: &mut App, hl: &dyn Highlighter) {
             };
             let comment_count = app.comments.len();
             let stale_count = app.comments.iter().filter(|c| c.stale).count();
+            let scroll_hint = if app.screen == Screen::Main && app.diff_rendered_len > 0 {
+                let mut parts = Vec::new();
+                if app.diff_scroll > 0 {
+                    parts.push(format!("↑ {} more", app.diff_scroll));
+                }
+                let below = app
+                    .diff_rendered_len
+                    .saturating_sub(app.diff_scroll as usize + app.diff_viewport_height as usize);
+                if below > 0 {
+                    parts.push(format!("↓ {below} more"));
+                }
+                if parts.is_empty() {
+                    String::new()
+                } else {
+                    format!(" | {}", parts.join(" · "))
+                }
+            } else {
+                String::new()
+            };
             let status_text = if let Some(msg) = &app.status_message {
                 msg.clone()
             } else {
                 format!(
-                    " {} | Theme: {} | {} | 💬 {} comments{}  c add · e edit · d del · C copy · V view · s split · T theme · r refresh · q quit ",
+                    " {} | Theme: {} | {} | 💬 {} comments{}{}  c add · e edit · d del · C copy · V view · s split · T theme · r refresh · q quit ",
                     mode_label,
                     t.name(),
                     if app.files.is_empty() { "no changes".into() } else { format!("{} files", app.files.len()) },
                     comment_count,
                     if stale_count > 0 { format!(" ({stale_count} stale)") } else { String::new() },
+                    scroll_hint,
                 )
             };
             let bar = Layout::default()
